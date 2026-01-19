@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 50
 
+    # LLM Configuration
+    llm_provider: Literal["openai", "anthropic"] = "openai"
+    anthropic_api_key: str | None = None
+    llm_model: str = "gpt-4o-mini"
+    llm_max_tokens: int = 2048
+
+    # RAG Configuration
+    rag_context_chunks: int = 5
+
     # Search Configuration
     search_top_k: int = 10
     search_dense_weight: float = 0.7

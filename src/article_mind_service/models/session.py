@@ -10,6 +10,7 @@ from article_mind_service.database import Base
 
 if TYPE_CHECKING:
     from .article import Article
+    from .chat import ChatMessage
 
 # Session status as a Python type
 SessionStatus = Literal["draft", "active", "completed", "archived"]
@@ -99,6 +100,12 @@ class ResearchSession(Base):
     # Relationships
     articles: Mapped[list["Article"]] = relationship(
         "Article",
+        back_populates="session",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage",
         back_populates="session",
         lazy="selectin",
         cascade="all, delete-orphan",

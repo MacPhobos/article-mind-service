@@ -4,12 +4,14 @@
 # This is required for Alembic autogenerate to detect models
 
 from .article import Article, ArticleType, ExtractionStatus
+from .chat import ChatMessage
 from .session import ResearchSession, SessionStatus
 
 __all__ = [
     "Article",
     "ArticleType",
     "ExtractionStatus",
+    "ChatMessage",
     "ResearchSession",
     "SessionStatus",
 ]

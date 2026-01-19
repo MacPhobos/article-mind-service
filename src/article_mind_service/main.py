@@ -9,7 +9,13 @@ from sqlalchemy import text
 
 from .config import settings
 from .database import engine
-from .routers import articles_router, health_router, search_router, sessions_router
+from .routers import (
+    articles_router,
+    chat_router,
+    health_router,
+    search_router,
+    sessions_router,
+)
 
 
 @asynccontextmanager
@@ -66,6 +72,9 @@ app.include_router(articles_router)
 
 # Search API (knowledge query)
 app.include_router(search_router)
+
+# Chat API (Q&A with RAG)
+app.include_router(chat_router)
 
 
 @app.get("/")
