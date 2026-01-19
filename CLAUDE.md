@@ -134,6 +134,8 @@ article-mind-service/
 
 **CRITICAL:** Pydantic schemas define the API contract, which automatically generates OpenAPI specs for frontend TypeScript types.
 
+**Contract Document:** `docs/api-contract.md` - This is the **source of truth** for the API contract. Any API changes must be documented here FIRST, then implemented. The frontend mirrors this contract at `article-mind-ui/docs/api-contract.md`.
+
 ### 1. Define Pydantic Schema
 
 All request and response models MUST be Pydantic schemas in `schemas/`:
