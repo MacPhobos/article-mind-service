@@ -44,6 +44,8 @@ app = FastAPI(
 )
 
 # CORS middleware
+# When CORS_ALLOW_ALL=true, allows all origins (["*"])
+# Otherwise, uses comma-separated CORS_ORIGINS list
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
