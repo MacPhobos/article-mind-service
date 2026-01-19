@@ -56,3 +56,4 @@ env/
 ENV/
 .venv/
 data/uploads/
+.venv-sys
