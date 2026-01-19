@@ -11,7 +11,9 @@ class Settings(BaseSettings):
 
     # API
     api_v1_prefix: str = "/api/v1"
-    cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://192.168.1.9:5175"
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://192.168.1.9:5175"
+    )
     cors_allow_all: bool = False
 
     # App
@@ -19,6 +21,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     app_name: str = "Article Mind Service"
     app_version: str = "0.1.0"
+
+    # File Upload
+    upload_base_path: str = "data/uploads"
+    max_upload_size_mb: int = 50
+
+    # Content Extraction
+    extraction_timeout_seconds: int = 30
+    extraction_max_retries: int = 3
+    extraction_user_agent: str = "ArticleMind/1.0 (Content Extraction Bot)"
+    playwright_headless: bool = True
+    extraction_max_content_size_mb: int = 50
 
     @property
     def cors_origins_list(self) -> list[str]:

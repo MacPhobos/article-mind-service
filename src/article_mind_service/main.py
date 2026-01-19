@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from .config import settings
-from .database import engine, get_db
-from .routers import health_router, sessions_router
+from .database import engine
+from .routers import articles_router, health_router, sessions_router
 
 
 @asynccontextmanager
@@ -60,6 +60,9 @@ app.include_router(health_router)
 
 # Sessions CRUD API
 app.include_router(sessions_router)
+
+# Articles CRUD API (nested under sessions)
+app.include_router(articles_router)
 
 
 @app.get("/")

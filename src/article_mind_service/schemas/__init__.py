@@ -1,5 +1,14 @@
 """Pydantic schemas for API request/response validation."""
 
+from .article import (
+    AddUrlRequest,
+    ArticleContentResponse,
+    ArticleListResponse,
+    ArticleResponse,
+    ArticleType,
+    ExtractionStatus,
+    UploadFileResponse,
+)
 from .health import HealthResponse
 from .session import (
     ChangeStatusRequest,
@@ -20,4 +29,12 @@ __all__ = [
     "SessionResponse",
     "SessionStatus",
     "UpdateSessionRequest",
+    # Article
+    "AddUrlRequest",
+    "ArticleContentResponse",
+    "ArticleListResponse",
+    "ArticleResponse",
+    "ArticleType",
+    "ExtractionStatus",
+    "UploadFileResponse",
 ]

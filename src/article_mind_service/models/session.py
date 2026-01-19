@@ -1,12 +1,15 @@
 """Research session database model."""
 
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import DateTime, Enum, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from article_mind_service.database import Base
+
+if TYPE_CHECKING:
+    from .article import Article
 
 # Session status as a Python type
 SessionStatus = Literal["draft", "active", "completed", "archived"]
@@ -91,6 +94,14 @@ class ResearchSession(Base):
         default=None,
         index=True,
         comment="Soft delete timestamp (null = not deleted)",
+    )
+
+    # Relationships
+    articles: Mapped[list["Article"]] = relationship(
+        "Article",
+        back_populates="session",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

@@ -15,7 +15,7 @@ engine = create_async_engine(
     echo=settings.debug,
     future=True,
     pool_pre_ping=True,  # Verify connections are alive before using
-    pool_recycle=3600,   # Recycle connections after 1 hour
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 AsyncSessionLocal = async_sessionmaker(

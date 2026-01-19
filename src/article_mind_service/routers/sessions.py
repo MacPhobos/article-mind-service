@@ -23,25 +23,28 @@ router = APIRouter(
 )
 
 
-def session_to_response(session: ResearchSession) -> SessionResponse:
+def session_to_response(
+    session: ResearchSession, article_count: int | None = None
+) -> SessionResponse:
     """Convert SQLAlchemy model to Pydantic response.
 
     Args:
         session: Database model instance
+        article_count: Optional pre-computed article count. If None, computes from relationship.
 
     Returns:
         Pydantic response schema
-
-    Note:
-        article_count is set to 0 for now. When articles are implemented,
-        this should compute the actual count from the relationship.
     """
+    if article_count is None:
+        # Compute from relationship (filters out soft-deleted articles)
+        article_count = len([a for a in session.articles if a.deleted_at is None])
+
     return SessionResponse(
         id=session.id,
         name=session.name,
         description=session.description,
         status=session.status,
-        article_count=0,  # TODO: Compute from articles relationship
+        article_count=article_count,
         created_at=session.created_at,
         updated_at=session.updated_at,
     )
