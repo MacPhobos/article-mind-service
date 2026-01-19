@@ -17,6 +17,11 @@ def client() -> TestClient:
 
 @pytest.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    """Async test client."""
+    """Async test client.
+
+    Note: Tests use the real database with transaction commits.
+    Data is not automatically rolled back, so tests may see data from previous tests.
+    This is acceptable for integration tests that verify the full stack.
+    """
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

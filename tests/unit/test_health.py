@@ -1,5 +1,6 @@
 """Detailed tests for health check endpoint."""
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -40,7 +41,7 @@ async def test_health_check_degraded_on_db_failure(async_client: AsyncClient) ->
     mock_session.execute.side_effect = Exception("Database connection failed")
 
     # Mock the get_db dependency to return our failing session
-    async def mock_get_db():
+    async def mock_get_db() -> AsyncGenerator[AsyncMock, None]:
         yield mock_session
 
     # Patch the dependency in the router module
@@ -133,7 +134,7 @@ async def test_health_check_with_various_db_errors(async_client: AsyncClient) ->
         mock_session.execute.side_effect = error
 
         # Use default argument to bind loop variable (Python closure best practice)
-        async def mock_get_db(session=mock_session):
+        async def mock_get_db(session: AsyncMock = mock_session) -> AsyncGenerator[AsyncMock, None]:
             yield session
 
         with patch("article_mind_service.routers.health.get_db", mock_get_db):

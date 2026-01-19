@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from .config import settings
-from .database import engine
-from .routers import health_router
+from .database import engine, get_db
+from .routers import health_router, sessions_router
 
 
 @asynccontextmanager
@@ -55,6 +55,9 @@ app.add_middleware(
 # Include routers
 # Health check router (no prefix - as per API contract)
 app.include_router(health_router)
+
+# Sessions CRUD API
+app.include_router(sessions_router)
 
 
 @app.get("/")

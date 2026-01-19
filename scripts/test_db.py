@@ -1,6 +1,7 @@
 """Test database connection."""
 
 import asyncio
+
 from sqlalchemy import text
 
 from article_mind_service.database import engine
@@ -12,7 +13,7 @@ async def test_connection() -> None:
         async with engine.begin() as conn:
             result = await conn.execute(text("SELECT version()"))
             version = result.scalar()
-            print(f"✅ Database connection successful!")
+            print("✅ Database connection successful!")
             print(f"PostgreSQL version: {version}")
 
             # Test basic query

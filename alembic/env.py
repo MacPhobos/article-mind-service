@@ -5,21 +5,21 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from alembic import context
 
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import models and config
-from article_mind_service.config import settings
-from article_mind_service.database import Base
-
 # Import all models here to ensure they are registered with Base.metadata
 # (This is where you would import your models)
 import article_mind_service.models  # noqa: F401
+from article_mind_service.config import settings
+from article_mind_service.database import Base
 
 # this is the Alembic Config object
 config = context.config

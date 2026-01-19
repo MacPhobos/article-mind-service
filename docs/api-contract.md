@@ -1,7 +1,7 @@
 # Article Mind API Contract
 
 > **Version**: 1.0.0
-> **Last Updated**: 2026-01-18
+> **Last Updated**: 2026-01-19
 > **Status**: FROZEN - Changes require version bump and UI sync
 
 This document defines the API contract between `article-mind-service` (backend) and `article-mind-ui` (frontend).
@@ -131,6 +131,193 @@ The health endpoint ALWAYS returns HTTP 200, even when the database is down. Thi
 - **Service alive but degraded** (returns 200 with status: "degraded")
 
 This pattern enables smarter load balancing and alerts.
+
+---
+
+### Sessions
+
+#### `POST /api/v1/sessions`
+
+Create a new research session. All sessions start in `draft` status.
+
+**Request Body:**
+```json
+{
+  "name": "My Research Project",
+  "description": "Optional description"
+}
+```
+
+**Response** `201 Created`:
+```json
+{
+  "id": 1,
+  "name": "My Research Project",
+  "description": "Optional description",
+  "status": "draft",
+  "article_count": 0,
+  "created_at": "2026-01-19T10:30:00Z",
+  "updated_at": "2026-01-19T10:30:00Z"
+}
+```
+
+**Schema:**
+```typescript
+interface CreateSessionRequest {
+  name: string;                    // Required, 1-255 chars
+  description?: string | null;     // Optional, max 5000 chars
+}
+
+interface SessionResponse {
+  id: number;
+  name: string;
+  description: string | null;
+  status: "draft" | "active" | "completed" | "archived";
+  article_count: number;
+  created_at: string;  // ISO 8601
+  updated_at: string;  // ISO 8601
+}
+```
+
+#### `GET /api/v1/sessions`
+
+List all non-deleted research sessions.
+
+**Query Parameters:**
+- `status` (optional): Filter by status (`draft`, `active`, `completed`, `archived`)
+
+**Response** `200 OK`:
+```json
+{
+  "sessions": [
+    {
+      "id": 1,
+      "name": "Research Project A",
+      "description": "First project",
+      "status": "active",
+      "article_count": 10,
+      "created_at": "2026-01-15T10:30:00Z",
+      "updated_at": "2026-01-19T14:45:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Schema:**
+```typescript
+interface SessionListResponse {
+  sessions: SessionResponse[];
+  total: number;  // Total sessions matching filter
+}
+```
+
+#### `GET /api/v1/sessions/{id}`
+
+Get a single research session by ID.
+
+**Response** `200 OK`:
+```json
+{
+  "id": 1,
+  "name": "Research Project A",
+  "description": "First project",
+  "status": "active",
+  "article_count": 10,
+  "created_at": "2026-01-15T10:30:00Z",
+  "updated_at": "2026-01-19T14:45:00Z"
+}
+```
+
+**Errors:**
+- `404 Not Found`: Session does not exist or is deleted
+
+#### `PATCH /api/v1/sessions/{id}`
+
+Update session name and/or description. Only provided fields are updated.
+
+**Request Body:**
+```json
+{
+  "name": "Updated Name",
+  "description": "Updated description"
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "id": 1,
+  "name": "Updated Name",
+  "description": "Updated description",
+  "status": "draft",
+  "article_count": 0,
+  "created_at": "2026-01-19T10:30:00Z",
+  "updated_at": "2026-01-19T10:35:00Z"
+}
+```
+
+**Schema:**
+```typescript
+interface UpdateSessionRequest {
+  name?: string;         // Optional, 1-255 chars
+  description?: string;  // Optional, max 5000 chars, empty string clears
+}
+```
+
+**Errors:**
+- `404 Not Found`: Session does not exist or is deleted
+- `422 Unprocessable Entity`: Validation error
+
+#### `DELETE /api/v1/sessions/{id}`
+
+Soft delete a session. Session data is preserved but hidden from listings.
+
+**Response** `204 No Content`
+
+**Errors:**
+- `404 Not Found`: Session does not exist or is already deleted
+
+#### `POST /api/v1/sessions/{id}/status`
+
+Change session status. Validates status transitions.
+
+**Valid Transitions:**
+- `draft` → `active`, `archived`
+- `active` → `completed`, `archived`
+- `completed` → `archived`
+- `archived` → (none - archived sessions cannot change status)
+
+**Request Body:**
+```json
+{
+  "status": "active"
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "id": 1,
+  "name": "Research Project A",
+  "description": "First project",
+  "status": "active",
+  "article_count": 10,
+  "created_at": "2026-01-15T10:30:00Z",
+  "updated_at": "2026-01-19T14:45:00Z"
+}
+```
+
+**Schema:**
+```typescript
+interface ChangeStatusRequest {
+  status: "draft" | "active" | "completed" | "archived";
+}
+```
+
+**Errors:**
+- `404 Not Found`: Session does not exist or is deleted
+- `400 Bad Request`: Invalid status transition (e.g., `draft` → `completed`)
 
 ---
 
