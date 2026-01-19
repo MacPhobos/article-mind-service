@@ -10,6 +10,7 @@ from .article import (
     UploadFileResponse,
 )
 from .health import HealthResponse
+from .search import SearchMode, SearchRequest, SearchResponse, SearchResult
 from .session import (
     ChangeStatusRequest,
     CreateSessionRequest,
@@ -37,4 +38,9 @@ __all__ = [
     "ArticleType",
     "ExtractionStatus",
     "UploadFileResponse",
+    # Search
+    "SearchMode",
+    "SearchRequest",
+    "SearchResponse",
+    "SearchResult",
 ]

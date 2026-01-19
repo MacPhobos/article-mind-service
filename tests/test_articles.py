@@ -1,6 +1,5 @@
 """Integration tests for articles API endpoints."""
 
-import io
 from pathlib import Path
 
 import pytest
@@ -116,7 +115,10 @@ class TestUploadArticleFile:
         """Test uploading different file types."""
         file_types = [
             ("test.pdf", "application/pdf"),
-            ("test.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            (
+                "test.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
             ("test.txt", "text/plain"),
             ("test.md", "text/markdown"),
             ("test.html", "text/html"),
@@ -136,7 +138,9 @@ class TestUploadArticleFile:
             # Clean up
             article_id = data["id"]
             ext = Path(filename).suffix
-            upload_path = Path("data/uploads") / str(session_id) / str(article_id) / f"original{ext}"
+            upload_path = (
+                Path("data/uploads") / str(session_id) / str(article_id) / f"original{ext}"
+            )
             upload_path.unlink(missing_ok=True)
             upload_path.parent.rmdir()
 
@@ -219,9 +223,7 @@ class TestGetArticle:
         article_id = create_response.json()["id"]
 
         # Get article
-        response = await async_client.get(
-            f"/api/v1/sessions/{session_id}/articles/{article_id}"
-        )
+        response = await async_client.get(f"/api/v1/sessions/{session_id}/articles/{article_id}")
         assert response.status_code == 200
 
         data = response.json()
@@ -241,14 +243,10 @@ class TestGetArticle:
     async def test_get_article_from_wrong_session(self, async_client: AsyncClient) -> None:
         """Test getting article from different session returns 404."""
         # Create two sessions
-        session1 = await async_client.post(
-            "/api/v1/sessions", json={"name": "Session 1"}
-        )
+        session1 = await async_client.post("/api/v1/sessions", json={"name": "Session 1"})
         session1_id = session1.json()["id"]
 
-        session2 = await async_client.post(
-            "/api/v1/sessions", json={"name": "Session 2"}
-        )
+        session2 = await async_client.post("/api/v1/sessions", json={"name": "Session 2"})
         session2_id = session2.json()["id"]
 
         # Create article in session1
@@ -277,9 +275,7 @@ class TestDeleteArticle:
         article_id = create_response.json()["id"]
 
         # Delete article
-        response = await async_client.delete(
-            f"/api/v1/sessions/{session_id}/articles/{article_id}"
-        )
+        response = await async_client.delete(f"/api/v1/sessions/{session_id}/articles/{article_id}")
         assert response.status_code == 204
 
         # Verify article is not found
@@ -301,9 +297,7 @@ class TestGetArticleContent:
     """Tests for GET /api/v1/sessions/{session_id}/articles/{article_id}/content"""
 
     @pytest.mark.asyncio
-    async def test_get_content_not_ready(
-        self, async_client: AsyncClient, session_id: int
-    ) -> None:
+    async def test_get_content_not_ready(self, async_client: AsyncClient, session_id: int) -> None:
         """Test getting content when extraction not completed."""
         # Create article (status will be pending)
         create_response = await async_client.post(

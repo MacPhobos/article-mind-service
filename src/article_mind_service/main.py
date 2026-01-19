@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .database import engine
-from .routers import articles_router, health_router, sessions_router
+from .routers import articles_router, health_router, search_router, sessions_router
 
 
 @asynccontextmanager
@@ -63,6 +63,9 @@ app.include_router(sessions_router)
 
 # Articles CRUD API (nested under sessions)
 app.include_router(articles_router)
+
+# Search API (knowledge query)
+app.include_router(search_router)
 
 
 @app.get("/")

@@ -17,6 +17,9 @@ ArticleType = Literal["url", "file"]
 # Extraction status as a Python type
 ExtractionStatus = Literal["pending", "processing", "completed", "failed"]
 
+# Embedding status as a Python type
+EmbeddingStatus = Literal["pending", "processing", "completed", "failed"]
+
 
 class Article(Base):
     """Article model for storing research articles within sessions.
@@ -123,6 +126,28 @@ class Article(Base):
         nullable=True,
         index=True,
         comment="SHA-256 hash of content for deduplication",
+    )
+
+    # Embedding status tracking
+    embedding_status: Mapped[str] = mapped_column(
+        Enum(
+            "pending",
+            "processing",
+            "completed",
+            "failed",
+            name="embedding_status",
+            create_constraint=True,
+        ),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        index=True,
+        comment="Embedding generation status",
+    )
+    chunk_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Number of chunks created during embedding",
     )
 
     # Extraction metadata
