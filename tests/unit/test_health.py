@@ -22,20 +22,25 @@ async def test_health_check_ok_status(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_health_check_degraded_on_db_failure(async_client: AsyncClient) -> None:
+async def test_health_check_degraded_on_db_failure() -> None:
     """Test health check returns 'degraded' when database is down.
 
-    Design Decision: Mock at session level, not engine level
+    Design Decision: Override get_db dependency directly
 
-    Rationale: Mocking get_db dependency is more reliable than mocking
-    the database engine, as it operates at the FastAPI dependency injection
-    layer rather than SQLAlchemy internals.
+    Rationale: app.dependency_overrides takes precedence over patches,
+    so we must override the dependency at the app level for the test
+    to properly inject the mock.
 
     Trade-offs:
-    - Testability: Easier to mock AsyncSession.execute than async engine
-    - Isolation: Doesn't require deep knowledge of SQLAlchemy internals
-    - Maintenance: Less brittle when SQLAlchemy versions change
+    - Testability: Direct override is more explicit than patching
+    - Isolation: Requires manual cleanup to avoid affecting other tests
+    - Correctness: Guaranteed to work with FastAPI's dependency system
     """
+    from httpx import ASGITransport, AsyncClient
+
+    from article_mind_service.database import get_db
+    from article_mind_service.main import app
+
     # Create mock session that raises on execute
     mock_session = AsyncMock()
     mock_session.execute.side_effect = Exception("Database connection failed")
@@ -44,15 +49,21 @@ async def test_health_check_degraded_on_db_failure(async_client: AsyncClient) ->
     async def mock_get_db() -> AsyncGenerator[AsyncMock, None]:
         yield mock_session
 
-    # Patch the dependency in the router module
-    with patch("article_mind_service.routers.health.get_db", mock_get_db):
-        response = await async_client.get("/health")
-        data = response.json()
+    # Override the dependency
+    app.dependency_overrides[get_db] = mock_get_db
 
-        assert response.status_code == 200  # Still returns 200
-        assert data["status"] == "degraded"
-        assert data["database"] == "disconnected"
-        assert data["version"] == "0.1.0"
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/health")
+            data = response.json()
+
+            assert response.status_code == 200  # Still returns 200
+            assert data["status"] == "degraded"
+            assert data["database"] == "disconnected"
+            assert data["version"] == "0.1.0"
+    finally:
+        # Cleanup: remove the override
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
@@ -110,7 +121,7 @@ async def test_health_check_version_matches_config(async_client: AsyncClient) ->
 
 
 @pytest.mark.asyncio
-async def test_health_check_with_various_db_errors(async_client: AsyncClient) -> None:
+async def test_health_check_with_various_db_errors() -> None:
     """Test health check handles different database error types gracefully.
 
     Error Handling Coverage:
@@ -121,6 +132,11 @@ async def test_health_check_with_various_db_errors(async_client: AsyncClient) ->
 
     All should result in "degraded" status, not crashes.
     """
+    from httpx import ASGITransport, AsyncClient
+
+    from article_mind_service.database import get_db
+    from article_mind_service.main import app
+
     error_scenarios = [
         ConnectionError("Connection timeout"),
         RuntimeError("Authentication failed"),
@@ -130,21 +146,33 @@ async def test_health_check_with_various_db_errors(async_client: AsyncClient) ->
 
     for error in error_scenarios:
         # Create mock session with error bound to avoid loop variable capture
-        mock_session = AsyncMock()
-        mock_session.execute.side_effect = error
+        # We need to create a new function for each iteration to capture the error
 
-        # Use default argument to bind loop variable (Python closure best practice)
-        async def mock_get_db(session: AsyncMock = mock_session) -> AsyncGenerator[AsyncMock, None]:
-            yield session
+        def make_mock_get_db(err: Exception):
+            """Factory to create mock_get_db with bound error."""
 
-        with patch("article_mind_service.routers.health.get_db", mock_get_db):
-            response = await async_client.get("/health")
-            data = response.json()
+            async def mock_get_db() -> AsyncGenerator[AsyncMock, None]:
+                mock_session = AsyncMock()
+                mock_session.execute.side_effect = err
+                yield mock_session
 
-            # All error types should result in degraded status
-            assert response.status_code == 200
-            assert data["status"] == "degraded"
-            assert data["database"] == "disconnected"
+            return mock_get_db
+
+        # Override the dependency
+        app.dependency_overrides[get_db] = make_mock_get_db(error)
+
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/health")
+                data = response.json()
+
+                # All error types should result in degraded status
+                assert response.status_code == 200
+                assert data["status"] == "degraded"
+                assert data["database"] == "disconnected"
+        finally:
+            # Cleanup: remove the override
+            app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio

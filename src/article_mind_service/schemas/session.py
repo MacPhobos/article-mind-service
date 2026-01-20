@@ -49,7 +49,12 @@ class UpdateSessionRequest(BaseModel):
     """Request schema for updating a session.
 
     All fields are optional - only provided fields are updated.
+
+    To distinguish between "field not sent" and "field explicitly set to empty",
+    we use model_config to exclude unset fields from model_dump().
     """
+
+    model_config = {"extra": "forbid"}  # Reject unknown fields
 
     name: str | None = Field(
         default=None,
@@ -76,10 +81,13 @@ class UpdateSessionRequest(BaseModel):
     @field_validator("description")
     @classmethod
     def validate_description(cls, v: str | None) -> str | None:
-        """Strip whitespace from description."""
+        """Strip whitespace from description and convert empty to None."""
         if v is None:
             return None
         stripped = v.strip()
+        # Empty string explicitly converts to None (this is intentional)
+        # We can distinguish between "not sent" (field not in model dump exclude_unset)
+        # and "sent as empty" (field in model dump with value None)
         return stripped if stripped else None
 
 

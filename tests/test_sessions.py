@@ -83,7 +83,7 @@ class TestListSessions:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] >= 1
+        assert data["total"] == 1
         assert any(s["name"] == "Session 1" for s in data["sessions"])
 
     async def test_list_sessions_filter_by_status(self, async_client: AsyncClient) -> None:

@@ -235,18 +235,31 @@ async def update_session(
     """
     session = await get_session_or_404(session_id, db)
 
+    # Get only fields that were explicitly set in the request
+    # This distinguishes between "field not sent" and "field set to None/empty"
+    updated_fields = data.model_dump(exclude_unset=True)
+
+    # Get article count before modifying (to avoid lazy load after flush)
+    # We need to access this before flush() to avoid triggering lazy loads
+    article_count = len([a for a in session.articles if a.deleted_at is None])
+
     # Update only provided fields
-    if data.name is not None:
+    if "name" in updated_fields:
         session.name = data.name
 
-    if data.description is not None:
-        # Empty string clears the description
-        session.description = data.description if data.description else None
+    if "description" in updated_fields:
+        # data.description will be None if empty string was sent (validator converts it)
+        # This is correct - we want to clear the description in this case
+        session.description = data.description
 
+    # Flush changes to trigger database-level updates (like updated_at)
     await db.flush()
-    await db.refresh(session)
 
-    return session_to_response(session)
+    # Refresh to get server-generated values (like updated_at from onupdate trigger)
+    # This is safe after flush() - it will see the flushed changes
+    await db.refresh(session, attribute_names=["updated_at"])
+
+    return session_to_response(session, article_count=article_count)
 
 
 @router.delete(
@@ -322,9 +335,15 @@ async def change_session_status(
             detail=f"Cannot transition from '{session.status}' to '{data.status}'",
         )
 
+    # Get article count before modifying (to avoid lazy load after flush)
+    article_count = len([a for a in session.articles if a.deleted_at is None])
+
     session.status = data.status
 
+    # Flush changes to trigger database-level updates (like updated_at)
     await db.flush()
-    await db.refresh(session)
 
-    return session_to_response(session)
+    # Refresh to get server-generated values (like updated_at from onupdate trigger)
+    await db.refresh(session, attribute_names=["updated_at"])
+
+    return session_to_response(session, article_count=article_count)

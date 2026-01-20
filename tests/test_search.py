@@ -105,10 +105,6 @@ class TestBM25Index:
 class TestBM25IndexCache:
     """Tests for BM25 index caching."""
 
-    def setup_method(self) -> None:
-        """Clear cache before each test."""
-        BM25IndexCache._indexes.clear()
-
     def test_get_or_create(self) -> None:
         """Test get_or_create returns same instance."""
         index1 = BM25IndexCache.get_or_create(session_id=1)
@@ -239,10 +235,6 @@ class TestReciprocalRankFusion:
 class TestSearchAPI:
     """Tests for search API endpoint."""
 
-    def setup_method(self) -> None:
-        """Clear BM25 cache before each test."""
-        BM25IndexCache._indexes.clear()
-
     async def test_search_empty_session(self, async_client: AsyncClient) -> None:
         """Test search on session with no indexed content."""
         response = await async_client.post(
@@ -349,10 +341,6 @@ class TestSearchAPI:
 @pytest.mark.asyncio
 class TestSearchIntegration:
     """Integration tests for end-to-end search flow."""
-
-    def setup_method(self) -> None:
-        """Set up test data."""
-        BM25IndexCache._indexes.clear()
 
     async def test_full_search_flow(self, async_client: AsyncClient) -> None:
         """Test complete search flow from indexing to results."""

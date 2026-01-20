@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-cov test-watch lint lint-fix format format-check migrate migrate-down migrate-create clean shell check
+.PHONY: help install dev test test-cov test-watch lint lint-fix format format-check migrate migrate-down migrate-create test-db-create test-db-drop test-db-reset clean shell check
 
 PYTHON := python
 UV := uv
@@ -58,6 +58,16 @@ migrate-create: ## Create new migration (use: make migrate-create MSG="descripti
 		exit 1; \
 	fi
 	$(UV) run alembic revision --autogenerate -m "$(MSG)"
+
+test-db-create: ## Create test database
+	PGPASSWORD=article_mind psql -U article_mind -d postgres -c "CREATE DATABASE article_mind_test OWNER article_mind;" || true
+
+test-db-drop: ## Drop test database
+	PGPASSWORD=article_mind psql -U article_mind -d postgres -c "DROP DATABASE IF EXISTS article_mind_test;"
+
+test-db-reset: test-db-drop test-db-create ## Reset test database and run migrations
+	TEST_DATABASE_URL="postgresql://article_mind:article_mind@localhost:5432/article_mind_test" \
+	$(UV) run alembic upgrade head
 
 clean: ## Remove build artifacts and cache
 	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov
