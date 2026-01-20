@@ -11,7 +11,7 @@ This service supports flexible CORS configuration for development and production
 Set `CORS_ORIGINS` to a comma-separated list of allowed origins:
 
 ```env
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://192.168.1.9:5175
+CORS_ORIGINS=http://localhost:13000,http://localhost:13001,http://192.168.1.9:13002
 CORS_ALLOW_ALL=false
 ```
 
@@ -70,7 +70,7 @@ make dev
 curl -H "Origin: http://any-origin.com" \
      -H "Access-Control-Request-Method: POST" \
      -H "Access-Control-Request-Headers: Content-Type" \
-     -X OPTIONS http://localhost:8000/api/v1/sessions -v
+     -X OPTIONS http://localhost:13010/api/v1/sessions -v
 
 # Check for Access-Control-Allow-Origin: * in response headers
 ```
@@ -109,7 +109,7 @@ curl -H "Origin: http://any-origin.com" \
 
 ### Local Development (Same Machine)
 ```env
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174
+CORS_ORIGINS=http://localhost:13000,http://localhost:13001
 CORS_ALLOW_ALL=false
 ```
 

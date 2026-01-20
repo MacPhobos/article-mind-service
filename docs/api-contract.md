@@ -25,7 +25,7 @@ This document defines the API contract between `article-mind-service` (backend) 
 
 | Environment | Base URL |
 |-------------|----------|
-| Development | `http://localhost:8000` |
+| Development | `http://localhost:13010` |
 | Production  | `https://api.article-mind.com` (TBD) |
 
 All endpoints are prefixed with `/api/v1` **except** `/health` and `/openapi.json`.
@@ -47,7 +47,7 @@ All endpoints are prefixed with `/api/v1` **except** `/health` and `/openapi.jso
 
 - Generated types at `src/lib/api/generated.ts`
 - Generation script: `npm run gen:api`
-- Command: `openapi-typescript http://localhost:8000/openapi.json -o src/lib/api/generated.ts`
+- Command: `openapi-typescript http://localhost:13010/openapi.json -o src/lib/api/generated.ts`
 
 **Workflow**: Backend changes models → Backend deploys → UI runs type generation → UI updates
 
@@ -363,7 +363,7 @@ interface ChangeStatusRequest {
 ### Development
 
 ```
-Origins: http://localhost:5173
+Origins: http://localhost:13000
 Credentials: Allowed
 Methods: All
 Headers: All

@@ -13,7 +13,7 @@ install: ## Install dependencies with uv
 	$(UV) pip install -e ".[dev]"
 
 dev: ## Start development server with hot reload
-	$(UV) run uvicorn article_mind_service.main:app --reload --host 0.0.0.0 --port 8000
+	$(UV) run uvicorn article_mind_service.main:app --reload --host 0.0.0.0 --port 13010
 
 test: ## Run tests
 	$(UV) run pytest

@@ -46,7 +46,7 @@ All common commands are available via the Makefile. Run `make help` to see all a
 # Install dependencies
 make install
 
-# Start development server (http://localhost:8000)
+# Start development server (http://localhost:13010)
 make dev
 
 # Run tests
@@ -173,9 +173,9 @@ async def health_check() -> HealthResponse:
 ### 3. OpenAPI Auto-Generation
 
 FastAPI automatically generates OpenAPI spec at:
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
-- **OpenAPI JSON:** http://localhost:8000/openapi.json
+- **Swagger UI:** http://localhost:13010/docs
+- **ReDoc:** http://localhost:13010/redoc
+- **OpenAPI JSON:** http://localhost:13010/openapi.json
 
 ### 4. Frontend TypeScript Generation
 
@@ -517,7 +517,7 @@ DATABASE_URL=postgresql://article_mind:article_mind@localhost:5432/article_mind
 
 # API
 API_V1_PREFIX=/api/v1
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:13000
 
 # App
 DEBUG=true
@@ -918,7 +918,7 @@ database: Literal["connected", "disconnected"]
 make dev
 
 # Test health endpoint
-curl http://localhost:8000/health
+curl http://localhost:13010/health
 
 # Expected response (if DB is up):
 {
@@ -928,10 +928,10 @@ curl http://localhost:8000/health
 }
 
 # View OpenAPI docs
-open http://localhost:8000/docs
+open http://localhost:13010/docs
 
 # View OpenAPI spec
-curl http://localhost:8000/openapi.json | jq '.paths["/health"]'
+curl http://localhost:13010/openapi.json | jq '.paths["/health"]'
 ```
 
 ### Frontend Type Generation
@@ -1290,7 +1290,7 @@ For production scaling:
 
 2. **Make changes** to routes/models/schemas
    - Hot reload happens automatically
-   - Check http://localhost:8000/docs for OpenAPI updates
+   - Check http://localhost:13010/docs for OpenAPI updates
 
 3. **Run tests:**
    ```bash
@@ -1360,14 +1360,14 @@ For production scaling:
 
 ## Troubleshooting
 
-### Port 8000 Already in Use
+### Port 13010 Already in Use
 
 ```bash
-# Find and kill process using port 8000
-lsof -ti:8000 | xargs kill -9
+# Find and kill process using port 13010
+lsof -ti:13010 | xargs kill -9
 
 # Or use different port
-uv run uvicorn article_mind_service.main:app --reload --port 8001
+uv run uvicorn article_mind_service.main:app --reload --port 13011
 ```
 
 ### Alembic Can't Find Models

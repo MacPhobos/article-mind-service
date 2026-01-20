@@ -34,9 +34,9 @@ See [CLAUDE.md](./CLAUDE.md) for comprehensive development guidelines.
 ## API Documentation
 
 When running the dev server, access:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- OpenAPI JSON: http://localhost:8000/openapi.json
+- Swagger UI: http://localhost:13010/docs
+- ReDoc: http://localhost:13010/redoc
+- OpenAPI JSON: http://localhost:13010/openapi.json
 
 ## Development
 

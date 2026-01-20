@@ -122,9 +122,9 @@ Comprehensive test suite with 19 test cases:
 
 ### 9. OpenAPI Documentation
 All endpoints automatically documented at:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- OpenAPI JSON: http://localhost:8000/openapi.json
+- Swagger UI: http://localhost:13010/docs
+- ReDoc: http://localhost:13010/redoc
+- OpenAPI JSON: http://localhost:13010/openapi.json
 
 Verified schemas in OpenAPI spec:
 - ArticleContentResponse
@@ -255,7 +255,7 @@ make type-check    # ✅ Passes
 
 # Test API endpoints
 make dev           # Start server
-curl http://localhost:8000/openapi.json | grep article  # Verify endpoints
+curl http://localhost:13010/openapi.json | grep article  # Verify endpoints
 
 # Run tests
 pytest tests/test_articles.py::TestAddUrlArticle -v  # ✅ Passes

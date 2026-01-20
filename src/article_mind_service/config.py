@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # API
     api_v1_prefix: str = "/api/v1"
     cors_origins: str = (
-        "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://192.168.1.9:5175"
+        "http://localhost:13000,http://localhost:13001,http://localhost:13002,http://192.168.1.9:13002"
     )
     cors_allow_all: bool = False
 
