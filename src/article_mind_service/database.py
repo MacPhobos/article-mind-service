@@ -12,7 +12,7 @@ database_url = settings.database_url.replace("postgresql://", "postgresql+asyncp
 
 engine = create_async_engine(
     database_url,
-    echo=settings.debug,
+    echo=False,  # Use Python logging instead of SQLAlchemy echo
     future=True,
     pool_pre_ping=True,  # Verify connections are alive before using
     pool_recycle=3600,  # Recycle connections after 1 hour

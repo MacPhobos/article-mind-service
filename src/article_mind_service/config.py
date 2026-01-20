@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # App
     debug: bool = False
     log_level: str = "INFO"
+    sqlalchemy_log_level: str = "WARNING"  # SQLAlchemy-specific log level (INFO shows all SQL)
     app_name: str = "Article Mind Service"
     app_version: str = "0.1.0"
 

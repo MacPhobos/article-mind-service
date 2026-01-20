@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,14 @@ from .routers import (
     health_router,
     search_router,
     sessions_router,
+)
+
+# Configure SQLAlchemy logging level (suppress INFO logs like "BEGIN", "COMMIT")
+logging.getLogger("sqlalchemy.engine").setLevel(
+    getattr(logging, settings.sqlalchemy_log_level.upper())
+)
+logging.getLogger("sqlalchemy.pool").setLevel(
+    getattr(logging, settings.sqlalchemy_log_level.upper())
 )
 
 
