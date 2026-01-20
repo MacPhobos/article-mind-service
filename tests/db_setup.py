@@ -10,12 +10,22 @@ from .db_safety import validate_test_database_url
 
 
 def get_test_database_url() -> str:
-    """Get test database URL from environment."""
+    """Get test database URL from environment.
+
+    The test suite automatically loads TEST_DATABASE_URL from .env.test file
+    via conftest.py. If this error occurs, ensure .env.test exists and contains
+    a valid TEST_DATABASE_URL.
+
+    Example .env.test:
+        TEST_DATABASE_URL=postgresql://article_mind:article_mind@localhost:5432/article_mind_test
+    """
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         raise ValueError(
-            "TEST_DATABASE_URL environment variable is required for tests. "
-            "Set it in .env.test or export it directly."
+            "TEST_DATABASE_URL environment variable is required for tests.\n"
+            "The test suite should automatically load it from .env.test file.\n"
+            "Ensure .env.test exists in the project root with TEST_DATABASE_URL set.\n"
+            "Example: TEST_DATABASE_URL=postgresql://article_mind:article_mind@localhost:5432/article_mind_test"
         )
     return url
 

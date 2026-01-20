@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
@@ -18,6 +19,16 @@ from article_mind_service.database import get_db
 from article_mind_service.main import app
 
 from .db_setup import get_test_database_url, run_alembic_upgrade
+
+# ============================================================================
+# Load Test Environment Variables
+# ============================================================================
+
+# Load .env.test at the very start of test suite (before any fixtures run)
+# This ensures TEST_DATABASE_URL and other test-specific settings are available
+env_test_path = Path(__file__).parent.parent / ".env.test"
+if env_test_path.exists():
+    load_dotenv(env_test_path, override=True)
 
 
 # ============================================================================

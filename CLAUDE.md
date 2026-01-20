@@ -471,6 +471,40 @@ uv run pytest tests/test_users.py::test_create_user
 - Integration tests for all API endpoints
 - Unit tests for business logic
 
+### Test Environment Configuration
+
+**Automatic .env.test Loading:**
+
+The test suite automatically loads environment variables from `.env.test` file via `conftest.py`. This eliminates the need to manually export `TEST_DATABASE_URL` before running tests.
+
+**Setup:**
+1. Create `.env.test` file in project root (if it doesn't exist)
+2. Add test-specific environment variables:
+   ```env
+   TEST_DATABASE_URL=postgresql://article_mind:article_mind@localhost:5432/article_mind_test
+   DEBUG=false
+   LOG_LEVEL=WARNING
+   ```
+
+**How it works:**
+- `conftest.py` loads `.env.test` using `python-dotenv` at test suite startup
+- All environment variables from `.env.test` are available to tests
+- `override=True` ensures test values take precedence over system environment
+
+**Running tests is simple:**
+```bash
+# No need to export TEST_DATABASE_URL manually
+make test
+
+# Or directly with pytest
+uv run pytest tests/
+```
+
+**Guard Rails:**
+- `.env.test` is gitignored (never commit credentials)
+- Use `.env.test.example` as template for new developers
+- Test database URL must contain `_test` or use `localhost` (enforced by `db_safety.py`)
+
 ## Environment Configuration
 
 ### Environment Variables
