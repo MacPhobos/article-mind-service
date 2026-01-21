@@ -12,6 +12,7 @@ from .config import settings
 from .database import engine
 from .logging_config import configure_logging
 from .routers import (
+    admin_router,
     articles_router,
     chat_router,
     health_router,
@@ -88,6 +89,9 @@ app.include_router(search_router)
 
 # Chat API (Q&A with RAG)
 app.include_router(chat_router)
+
+# Admin API (system operations)
+app.include_router(admin_router)
 
 
 @app.get("/")

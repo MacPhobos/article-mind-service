@@ -246,3 +246,73 @@ async def isolated_async_client(
     finally:
         # Cleanup: remove this specific override only (don't use .clear())
         app.dependency_overrides.pop(get_db, None)
+
+
+# ============================================================================
+# Data Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+async def db(db_session: AsyncSession) -> AsyncSession:
+    """Alias for db_session for compatibility with existing tests."""
+    return db_session
+
+
+@pytest.fixture
+async def sample_articles(db_session: AsyncSession) -> list[Any]:
+    """Create sample articles for testing admin reindex.
+
+    Creates 3 articles in different sessions with pending embedding status.
+    """
+    from article_mind_service.models.article import Article
+    from article_mind_service.models.session import ResearchSession
+
+    # Create test sessions
+    session1 = ResearchSession(name="Test Session 1", status="active")
+    session2 = ResearchSession(name="Test Session 2", status="active")
+    db_session.add_all([session1, session2])
+    await db_session.flush()
+
+    # Create test articles
+    articles = [
+        Article(
+            session_id=session1.id,
+            original_url="https://example.com/article1",
+            canonical_url="https://example.com/article1",
+            type="url",
+            extraction_status="completed",
+            embedding_status="pending",
+            content_text="Sample article 1 content for testing reindex",
+            title="Article 1",
+        ),
+        Article(
+            session_id=session1.id,
+            original_url="https://example.com/article2",
+            canonical_url="https://example.com/article2",
+            type="url",
+            extraction_status="completed",
+            embedding_status="pending",
+            content_text="Sample article 2 content for testing reindex",
+            title="Article 2",
+        ),
+        Article(
+            session_id=session2.id,
+            original_url="https://example.com/article3",
+            canonical_url="https://example.com/article3",
+            type="url",
+            extraction_status="completed",
+            embedding_status="pending",
+            content_text="Sample article 3 content for testing reindex",
+            title="Article 3",
+        ),
+    ]
+
+    db_session.add_all(articles)
+    await db_session.commit()
+
+    # Refresh to get IDs
+    for article in articles:
+        await db_session.refresh(article)
+
+    return articles

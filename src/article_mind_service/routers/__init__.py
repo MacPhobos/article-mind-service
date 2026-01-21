@@ -1,5 +1,6 @@
 """FastAPI routers for API endpoints."""
 
+from .admin import router as admin_router
 from .articles import router as articles_router
 from .chat import router as chat_router
 from .health import router as health_router
@@ -7,6 +8,7 @@ from .search import router as search_router
 from .sessions import router as sessions_router
 
 __all__ = [
+    "admin_router",
     "articles_router",
     "chat_router",
     "health_router",

@@ -1,5 +1,6 @@
 """Pydantic schemas for API request/response validation."""
 
+from .admin import AdminReindexRequest, AdminReindexResponse, TaskStatusResponse
 from .article import (
     AddUrlRequest,
     ArticleContentResponse,
@@ -43,4 +44,8 @@ __all__ = [
     "SearchRequest",
     "SearchResponse",
     "SearchResult",
+    # Admin
+    "AdminReindexRequest",
+    "AdminReindexResponse",
+    "TaskStatusResponse",
 ]
