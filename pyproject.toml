@@ -37,6 +37,8 @@ dependencies = [
     "numpy>=1.26.0",
     # Logging
     "structlog>=24.0.0",
+    # Server-Sent Events
+    "sse-starlette>=2.1.0",
 ]
 
 [project.optional-dependencies]
