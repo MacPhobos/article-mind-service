@@ -3,9 +3,9 @@
 from typing import Any
 
 import chromadb
-from chromadb.config import Settings as ChromaSettings
 
 from .base import EmbeddingProvider
+from .client import get_chromadb_client
 
 
 class ChromaDBStore:
@@ -56,20 +56,17 @@ class ChromaDBStore:
         """Initialize ChromaDB store.
 
         Args:
-            persist_path: Directory for persistent storage.
+            persist_path: DEPRECATED - ignored, uses singleton client.
             embedding_provider: Optional provider for query embedding.
 
         Note:
-            Creates directory if it doesn't exist.
-            Safe to call multiple times with same path.
+            Uses singleton ChromaDB client from get_chromadb_client().
+            persist_path parameter is kept for backward compatibility but ignored.
+            Client path is configured via settings.chroma_persist_directory.
         """
-        self.client = chromadb.PersistentClient(
-            path=persist_path,
-            settings=ChromaSettings(
-                anonymized_telemetry=False,
-                allow_reset=True,
-            ),
-        )
+        # Use singleton client instead of creating new instance
+        # This prevents client conflicts when same path is accessed from multiple modules
+        self.client = get_chromadb_client()
         self.embedding_provider = embedding_provider
 
     def get_or_create_collection(

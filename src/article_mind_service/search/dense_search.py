@@ -20,6 +20,7 @@ from chromadb.api.types import QueryResult
 from chromadb.errors import NotFoundError
 
 from article_mind_service.config import settings
+from article_mind_service.embeddings.client import get_chromadb_client
 
 
 @dataclass
@@ -65,8 +66,13 @@ class DenseSearch:
 
         Args:
             collection_name: ChromaDB collection name (default from settings)
+
+        Note:
+            Uses singleton ChromaDB client from get_chromadb_client().
+            This ensures consistent client settings across all modules.
         """
-        self.client = chromadb.PersistentClient(path=str(settings.chroma_persist_directory))
+        # Use singleton client to prevent client conflicts
+        self.client = get_chromadb_client()
         self.collection_name = collection_name or settings.chroma_collection_name
 
     def search(

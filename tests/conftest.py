@@ -136,12 +136,22 @@ def temp_chroma_dir() -> Path:
     """Create temporary directory for ChromaDB.
 
     Automatically cleaned up after test completion.
+    Also clears ChromaDB client singleton cache to prevent test interference.
     """
+    # Clear singleton cache before test
+    from article_mind_service.embeddings.client import get_chromadb_client
+
+    get_chromadb_client.cache_clear()
+
     temp_dir = Path(tempfile.mkdtemp(prefix="article_mind_test_chroma_"))
     yield temp_dir
+
     # Cleanup
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
+
+    # Clear singleton cache after test
+    get_chromadb_client.cache_clear()
 
 
 @pytest.fixture

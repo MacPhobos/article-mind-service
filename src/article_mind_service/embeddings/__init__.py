@@ -5,6 +5,7 @@ from article_mind_service.config import settings
 from .base import EmbeddingProvider
 from .chromadb_store import ChromaDBStore
 from .chunker import TextChunker
+from .client import get_chromadb_client
 from .exceptions import EmbeddingError
 from .ollama_provider import OllamaEmbeddingProvider
 from .openai_provider import OpenAIEmbeddingProvider
@@ -80,6 +81,7 @@ __all__ = [
     "ChromaDBStore",
     "EmbeddingPipeline",
     "EmbeddingError",
+    "get_chromadb_client",
     "get_embedding_provider",
     "get_embedding_pipeline",
 ]
