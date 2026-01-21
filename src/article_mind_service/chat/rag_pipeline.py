@@ -128,6 +128,34 @@ class RAGPipeline:
             chunk_ids=[c.get("chunk_id") for c in chunks][:5],  # First 5 IDs only
         )
 
+        # Debug: Log detailed chunk content preview
+        if chunks:
+            total_chars = sum(len(c.get("content", "")) for c in chunks)
+            logger.debug(
+                "rag.query.context_preview",
+                session_id=session_id,
+                total_context_chars=total_chars,
+            )
+            for idx, chunk in enumerate(chunks, start=1):
+                content = chunk.get("content", "")
+                chunk_id = chunk.get("chunk_id", "unknown")
+                title = chunk.get("title", "Unknown Article")
+                # Truncate long content to 100 chars with ellipsis
+                preview = (
+                    content[:100] + "..."
+                    if len(content) > 100
+                    else content
+                )
+                logger.debug(
+                    "rag.query.chunk_detail",
+                    session_id=session_id,
+                    chunk_number=idx,
+                    chunk_id=chunk_id,
+                    article_title=title,
+                    content_preview=preview,
+                    content_chars=len(content),
+                )
+
         # Step 2: Format context with metadata
         context_str, source_metadata = format_context_with_metadata(chunks)
         has_context = len(chunks) > 0
