@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 
 from article_mind_service.config import settings
+from article_mind_service.logging_config import get_logger
 from article_mind_service.schemas.search import (
     SearchMode,
     SearchRequest,
@@ -30,6 +31,8 @@ from article_mind_service.schemas.search import (
 from .dense_search import DenseSearch
 from .reranker import Reranker
 from .sparse_search import SparseSearch
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -170,6 +173,15 @@ class HybridSearch:
         """
         start_time = time.time()
 
+        logger.info(
+            "search.hybrid.start",
+            session_id=session_id,
+            query=request.query[:100],
+            top_k=request.top_k,
+            search_mode=request.search_mode.value,
+            include_content=request.include_content,
+        )
+
         # Determine effective top_k (get more for reranking)
         retrieve_k = request.top_k
         if self.rerank_enabled and self.reranker:
@@ -243,6 +255,16 @@ class HybridSearch:
         total_chunks = self.dense.get_total_chunks(session_id)
 
         timing_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(
+            "search.hybrid.complete",
+            session_id=session_id,
+            results_count=len(results),
+            total_chunks_searched=total_chunks,
+            timing_ms=timing_ms,
+            dense_results=len(dense_results),
+            sparse_results=len(sparse_results),
+        )
 
         return SearchResponse(
             query=request.query,

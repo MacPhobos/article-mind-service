@@ -1,16 +1,22 @@
 """Session CRUD API endpoints."""
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from article_mind_service.database import get_db
+from article_mind_service.models.article import Article
 from article_mind_service.models.session import ResearchSession
+
+if TYPE_CHECKING:
+    from article_mind_service.embeddings import EmbeddingPipeline
 from article_mind_service.schemas.session import (
     ChangeStatusRequest,
     CreateSessionRequest,
+    ReindexResponse,
     SessionListResponse,
     SessionResponse,
     SessionStatus,
@@ -347,3 +353,167 @@ async def change_session_status(
     await db.refresh(session, attribute_names=["updated_at"])
 
     return session_to_response(session, article_count=article_count)
+
+
+@router.post(
+    "/{session_id}/reindex",
+    response_model=ReindexResponse,
+    summary="Reindex articles in a session",
+    description=(
+        "Manually trigger reindexing of articles in a session. "
+        "This queues articles that have completed extraction but failed or "
+        "are pending embedding. Useful for recovering articles extracted "
+        "before auto-embedding was enabled."
+    ),
+    responses={
+        200: {"description": "Articles queued for reindexing"},
+        404: {"description": "Session not found"},
+    },
+)
+async def reindex_session(
+    session_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> ReindexResponse:
+    """Reindex articles in a session that need embedding.
+
+    This endpoint finds all articles in the session with:
+    - extraction_status="completed" (successfully extracted)
+    - embedding_status="pending" OR "failed" (not yet embedded or failed)
+
+    For each matching article, it triggers the embedding pipeline in the background.
+
+    Design Decisions:
+
+    1. Background Processing:
+       - Uses FastAPI BackgroundTasks for async processing
+       - Returns immediately with count of queued articles
+       - Trade-off: Fast response vs. no progress tracking
+
+    2. Article Selection Criteria:
+       - MUST have completed extraction (has content_text)
+       - MUST have pending or failed embedding status
+       - Ignores soft-deleted articles
+       - Trade-off: Conservative (only completed) vs. Aggressive (retry all)
+
+    3. Idempotent Operation:
+       - Safe to call multiple times on same session
+       - Already-indexed articles (embedding_status="completed") are skipped
+       - No-op if no articles need reindexing
+
+    Args:
+        session_id: Session containing articles to reindex
+        background_tasks: FastAPI background task manager
+        db: Database session
+
+    Returns:
+        Response with count and IDs of articles queued
+
+    Raises:
+        HTTPException: 404 if session not found
+
+    Performance:
+        - Query time: O(n) where n = articles in session
+        - Response time: <100ms (queues background tasks)
+        - Actual embedding: 2-10 seconds per article (async)
+    """
+    # Verify session exists (reuses existing helper)
+    session = await get_session_or_404(session_id, db)
+
+    # Find articles needing reindex
+    # Criteria:
+    # 1. Belongs to this session
+    # 2. Extraction completed (has content)
+    # 3. Embedding pending or failed (needs indexing)
+    # 4. Not soft-deleted
+    result = await db.execute(
+        select(Article).where(
+            and_(
+                Article.session_id == session_id,
+                Article.extraction_status == "completed",
+                or_(
+                    Article.embedding_status == "pending",
+                    Article.embedding_status == "failed",
+                ),
+                Article.deleted_at.is_(None),  # Exclude soft-deleted
+            )
+        )
+    )
+    articles = result.scalars().all()
+
+    # Queue embedding for each article
+    # Import here to avoid circular dependency and keep module loading fast
+    from article_mind_service.embeddings import get_embedding_pipeline
+
+    pipeline = get_embedding_pipeline()
+
+    for article in articles:
+        # Add background task to process this article
+        # Each task runs independently and updates article status
+        background_tasks.add_task(
+            _reindex_article,
+            article_id=article.id,
+            session_id=str(session.id),
+            text=article.content_text,
+            source_url=article.original_url or article.canonical_url or "",
+            pipeline=pipeline,
+            db=db,
+        )
+
+    return ReindexResponse(
+        session_id=session_id,
+        articles_queued=len(articles),
+        article_ids=[a.id for a in articles],
+    )
+
+
+async def _reindex_article(
+    article_id: int,
+    session_id: str,
+    text: str | None,
+    source_url: str,
+    pipeline: "EmbeddingPipeline",
+    db: AsyncSession,
+) -> None:
+    """Background task to reindex a single article.
+
+    This is a simple wrapper around the embedding pipeline that handles
+    errors gracefully and logs progress.
+
+    Args:
+        article_id: Article to reindex
+        session_id: Session ID as string (for ChromaDB collection)
+        text: Extracted article text
+        source_url: Original article URL
+        pipeline: Configured embedding pipeline
+        db: Database session
+
+    Error Handling:
+        - Catches all exceptions to prevent one failure from blocking others
+        - Logs errors for debugging
+        - Updates article embedding_status to "failed" on error
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    if not text:
+        logger.warning(f"Article {article_id} has no content text, skipping reindex")
+        return
+
+    try:
+        logger.info(f"Reindexing article {article_id} in session {session_id}")
+
+        chunk_count = await pipeline.process_article(
+            article_id=article_id,
+            session_id=session_id,
+            text=text,
+            source_url=source_url,
+            db=db,
+        )
+
+        logger.info(f"Reindexing completed for article {article_id}: {chunk_count} chunks")
+
+    except Exception as e:
+        logger.error(f"Reindexing failed for article {article_id}: {e}")
+        # Pipeline already updates status to "failed" on error

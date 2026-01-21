@@ -91,6 +91,30 @@ async def extract_article_content(
             f"{result.word_count} words, method={result.extraction_method}"
         )
 
+        # Trigger embedding pipeline after successful extraction
+        if article.extraction_status == "completed" and article.content_text:
+            try:
+                from article_mind_service.embeddings import get_embedding_pipeline
+
+                logger.info(f"Starting embedding pipeline for article {article_id}")
+
+                embedding_pipeline = get_embedding_pipeline()
+                chunk_count = await embedding_pipeline.process_article(
+                    article_id=article.id,
+                    session_id=str(article.session_id),
+                    text=article.content_text,
+                    source_url=url,
+                    db=db,
+                )
+
+                logger.info(
+                    f"Embedding completed for article {article_id}: "
+                    f"{chunk_count} chunks indexed"
+                )
+            except Exception as e:
+                logger.error(f"Embedding failed for article {article_id}: {e}")
+                # Don't fail extraction if embedding fails
+
     except NetworkError as e:
         logger.warning(f"Network error extracting article {article_id}: {e}")
         article.extraction_status = "failed"

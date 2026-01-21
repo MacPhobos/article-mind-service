@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import chromadb
 from chromadb.api.types import QueryResult
+from chromadb.errors import NotFoundError
 
 from article_mind_service.config import settings
 
@@ -92,19 +93,26 @@ class DenseSearch:
         Error Handling:
         - Returns empty list if collection doesn't exist
         - Logs warnings for ChromaDB errors
+
+        Design Decision: Session-based collection naming
+        - Uses session_{session_id} collection name to match indexing strategy
+        - Each session has isolated collection for multi-tenant safety
+        - Enables easy cleanup when session deleted
         """
+        # Use session-based collection naming (matches ChromaDBStore)
+        collection_name = f"session_{session_id}"
+
         try:
-            collection = self.client.get_collection(self.collection_name)
-        except ValueError:
+            collection = self.client.get_collection(collection_name)
+        except (ValueError, NotFoundError):
             # Collection doesn't exist yet
             return []
 
-        # Query with session filter
+        # Query collection (no session filter needed since collection is per-session)
         # Type ignore: ChromaDB accepts list[float] but type hints are incomplete
         results: QueryResult = collection.query(
             query_embeddings=[query_embedding],  # type: ignore
             n_results=top_k,
-            where={"session_id": session_id},
             include=["metadatas", "distances"],
         )
 
@@ -140,16 +148,14 @@ class DenseSearch:
 
         Usage: Populate total_chunks_searched field in SearchResponse
         """
+        # Use session-based collection naming
+        collection_name = f"session_{session_id}"
+
         try:
-            collection = self.client.get_collection(self.collection_name)
+            collection = self.client.get_collection(collection_name)
 
-            # Count chunks with session filter
-            results = collection.get(
-                where={"session_id": session_id},
-                include=[],  # Don't need actual data, just count
-            )
-
-            return len(results["ids"]) if results["ids"] else 0
-        except (ValueError, Exception):
+            # Count all chunks in session collection
+            return collection.count()
+        except (ValueError, NotFoundError, Exception):
             # Collection doesn't exist or other ChromaDB error
             return 0

@@ -7,10 +7,15 @@ from pydantic import BaseModel, Field
 
 
 class ChatSource(BaseModel):
-    """Source citation in chat response.
+    """Source citation in chat response with full traceability.
 
     Represents a reference to an article chunk that was used
     to generate part of the response.
+
+    Design Decision: Full content vs. excerpt
+    - Previously returned 200-char excerpts (insufficient for verification)
+    - Now returns full chunk content to enable answer grounding verification
+    - Trade-off: Larger response size vs. user transparency
     """
 
     citation_index: int = Field(
@@ -36,9 +41,76 @@ class ChatSource(BaseModel):
         description="Article URL",
         examples=["https://example.com/article"],
     )
-    excerpt: str | None = Field(
+    content: str | None = Field(
         default=None,
-        description="Brief excerpt from the cited content",
+        description="Full chunk content used for this citation (not truncated)",
+        examples=[
+            "JWT authentication uses tokens for stateless authorization. "
+            "The token contains encoded user claims and a signature that "
+            "verifies authenticity without server-side session storage."
+        ],
+    )
+
+    # Search metadata for transparency
+    relevance_score: float | None = Field(
+        default=None,
+        description="Search relevance score (RRF combined score)",
+        ge=0.0,
+        examples=[0.0156],
+    )
+    search_method: str | None = Field(
+        default=None,
+        description="Search method used: semantic, keyword, or hybrid",
+        examples=["hybrid"],
+    )
+    dense_rank: int | None = Field(
+        default=None,
+        description="Rank from semantic/dense vector search",
+        ge=1,
+        examples=[2],
+    )
+    sparse_rank: int | None = Field(
+        default=None,
+        description="Rank from keyword/sparse BM25 search",
+        ge=1,
+        examples=[1],
+    )
+
+
+class RetrievalMetadata(BaseModel):
+    """Metadata about the retrieval process for transparency.
+
+    Provides visibility into the search and retrieval process to help users
+    understand how the answer was generated and why certain sources were selected.
+
+    Design Decision: Transparency over simplicity
+    - Exposes search internals to users for better trust and debugging
+    - Allows frontend to show "N chunks retrieved, M cited" summary
+    - Enables understanding of search timing and performance
+    - Trade-off: Slightly larger response payload vs. user insight
+    """
+
+    chunks_retrieved: int = Field(
+        description="Total number of chunks retrieved from search",
+        examples=[5, 10],
+    )
+    chunks_cited: int = Field(
+        description="Number of chunks actually cited in the response",
+        examples=[2, 3],
+    )
+    search_mode: str = Field(
+        description="Search mode used: hybrid, semantic, or keyword",
+        examples=["hybrid"],
+    )
+    search_timing_ms: float | None = Field(
+        default=None,
+        description="Time taken for search in milliseconds",
+        examples=[150.5],
+    )
+    total_chunks_in_session: int | None = Field(
+        default=None,
+        description="Total indexed chunks available in this session",
+        examples=[50, 100],
     )
 
 
@@ -110,6 +182,10 @@ class ChatResponse(BaseModel):
         description="Total tokens consumed",
     )
     created_at: datetime = Field(..., description="When the response was generated")
+    retrieval_metadata: RetrievalMetadata | None = Field(
+        default=None,
+        description="Search and retrieval context for this response (P2 enhancement)",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -129,6 +205,12 @@ class ChatResponse(BaseModel):
                     "llm_model": "gpt-4o-mini",
                     "tokens_used": 1250,
                     "created_at": "2026-01-19T12:00:00Z",
+                    "retrieval_metadata": {
+                        "chunks_retrieved": 5,
+                        "chunks_cited": 2,
+                        "search_mode": "hybrid",
+                        "search_timing_ms": 150.5,
+                    },
                 }
             ]
         }

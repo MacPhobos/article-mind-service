@@ -1,6 +1,7 @@
 """RAG pipeline orchestration for chat Q&A."""
 
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,12 @@ from article_mind_service.chat.prompts import (
 )
 from article_mind_service.chat.providers import ProviderName, get_llm_provider
 from article_mind_service.config import settings
+from article_mind_service.embeddings import get_embedding_provider
+from article_mind_service.logging_config import get_logger
+from article_mind_service.schemas.search import SearchMode, SearchRequest
+from article_mind_service.search.hybrid_search import HybridSearch
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -25,6 +32,8 @@ class RAGResponse:
         llm_model: Model used for generation
         tokens_used: Total tokens consumed
         chunks_retrieved: Number of chunks retrieved from search
+        retrieval_metadata: Search and retrieval metadata (P2 enhancement)
+        context_chunks: Full chunks used for context with scores (P2 enhancement)
     """
 
     content: str
@@ -33,6 +42,8 @@ class RAGResponse:
     llm_model: str
     tokens_used: int
     chunks_retrieved: int
+    retrieval_metadata: dict[str, Any] | None = None
+    context_chunks: list[dict[str, Any]] | None = None
 
 
 class RAGPipeline:
@@ -93,6 +104,15 @@ class RAGPipeline:
         Returns:
             RAGResponse with answer and sources
         """
+        start_time = time.time()
+
+        logger.info(
+            "rag.query.start",
+            session_id=session_id,
+            question=question[:100],  # Truncate for readability
+            max_chunks=self.max_context_chunks,
+        )
+
         # Step 1: Retrieve relevant chunks
         chunks = await self._retrieve_chunks(
             session_id=session_id,
@@ -101,9 +121,24 @@ class RAGPipeline:
             search_client=search_client,
         )
 
+        logger.info(
+            "rag.query.chunks_retrieved",
+            session_id=session_id,
+            chunks_count=len(chunks),
+            chunk_ids=[c.get("chunk_id") for c in chunks][:5],  # First 5 IDs only
+        )
+
         # Step 2: Format context with metadata
         context_str, source_metadata = format_context_with_metadata(chunks)
         has_context = len(chunks) > 0
+
+        logger.debug(
+            "rag.query.context_formatted",
+            session_id=session_id,
+            context_length=len(context_str),
+            context_preview=context_str[:500],  # First 500 chars for debugging
+            has_context=has_context,
+        )
 
         # Step 3: Generate answer
         system_prompt = build_system_prompt(has_context=has_context)
@@ -116,11 +151,54 @@ class RAGPipeline:
             temperature=0.3,
         )
 
+        logger.info(
+            "rag.query.llm_response",
+            session_id=session_id,
+            provider=llm_response.provider,
+            model=llm_response.model,
+            tokens_input=llm_response.tokens_input,
+            tokens_output=llm_response.tokens_output,
+            total_tokens=llm_response.total_tokens,
+        )
+
         # Step 4: Extract cited sources only
         cited_sources = self._extract_cited_sources(
             content=llm_response.content,
             source_metadata=source_metadata,
         )
+
+        logger.info(
+            "rag.query.citations_extracted",
+            session_id=session_id,
+            cited_count=len(cited_sources),
+            total_retrieved=len(chunks),
+        )
+
+        # Step 5: Build retrieval metadata (P2 enhancement)
+        search_timing_ms = int((time.time() - start_time) * 1000)
+
+        retrieval_metadata = {
+            "search_mode": "hybrid",
+            "chunks_retrieved": len(chunks),
+            "chunks_cited": len(cited_sources),
+            "search_timing_ms": search_timing_ms,
+            "max_context_chunks": self.max_context_chunks,
+        }
+
+        # Step 6: Build context chunks audit trail (P2 enhancement)
+        cited_chunk_ids = {s.get("chunk_id") for s in cited_sources}
+        context_chunks = [
+            {
+                "chunk_id": chunk.get("chunk_id"),
+                "article_id": chunk.get("article_id"),
+                "content": chunk.get("content", ""),
+                "score": chunk.get("score"),
+                "dense_rank": chunk.get("dense_rank"),
+                "sparse_rank": chunk.get("sparse_rank"),
+                "cited": chunk.get("chunk_id") in cited_chunk_ids,
+            }
+            for chunk in chunks
+        ]
 
         return RAGResponse(
             content=llm_response.content,
@@ -129,6 +207,8 @@ class RAGPipeline:
             llm_model=llm_response.model,
             tokens_used=llm_response.total_tokens,
             chunks_retrieved=len(chunks),
+            retrieval_metadata=retrieval_metadata,
+            context_chunks=context_chunks,
         )
 
     async def _retrieve_chunks(
@@ -138,7 +218,7 @@ class RAGPipeline:
         limit: int,
         search_client: Any | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve relevant chunks from R6 search API.
+        """Retrieve relevant chunks using HybridSearch.
 
         Args:
             session_id: Session to search within
@@ -148,31 +228,14 @@ class RAGPipeline:
 
         Returns:
             List of chunk dictionaries with content and metadata
-        """
-        # TODO: Integrate with R6 search API when available
-        # For now, return empty to demonstrate flow
-        #
-        # Expected R6 API call:
-        # GET /api/v1/sessions/{session_id}/search?q={query}&limit={limit}
-        #
-        # Expected response:
-        # {
-        #     "results": [
-        #         {
-        #             "chunk_id": "...",
-        #             "article_id": 123,
-        #             "content": "...",
-        #             "score": 0.85,
-        #             "article": {
-        #                 "title": "...",
-        #                 "url": "..."
-        #             }
-        #         }
-        #     ]
-        # }
 
+        Error Handling:
+        - Returns empty list if search fails (logs error)
+        - Returns empty list if no indexed content exists
+        - Gracefully degrades to prevent chat from crashing
+        """
+        # Use injected client for testing
         if search_client:
-            # Use injected client for testing
             results = await search_client.search(
                 session_id=session_id,
                 query=query,
@@ -189,8 +252,94 @@ class RAGPipeline:
                 for r in results.get("results", [])
             ]
 
-        # Placeholder until R6 is implemented
-        return []
+        try:
+            # Initialize HybridSearch if needed
+            search = HybridSearch()
+
+            # Generate query embedding
+            logger.debug(
+                "rag.retrieve_chunks.embedding_start",
+                session_id=session_id,
+                query=query[:100],
+                limit=limit,
+            )
+
+            try:
+                provider = get_embedding_provider()
+                embeddings = await provider.embed([query])
+                query_embedding = embeddings[0]
+            except Exception as e:
+                logger.error(
+                    "rag.retrieve_chunks.embedding_failed",
+                    session_id=session_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return []
+
+            # Create search request
+            request = SearchRequest(
+                query=query,
+                top_k=limit,
+                include_content=True,
+                search_mode=SearchMode.HYBRID,
+            )
+
+            # Execute search
+            response = await search.search(
+                session_id=session_id,
+                request=request,
+                query_embedding=query_embedding,
+            )
+
+            logger.info(
+                "rag.retrieve_chunks.search_complete",
+                session_id=session_id,
+                results_count=len(response.results),
+                total_chunks_searched=response.total_chunks_searched,
+                search_mode=response.search_mode.value,
+                timing_ms=response.timing_ms,
+            )
+
+            # No results - return empty
+            if not response.results:
+                logger.warning(
+                    "rag.retrieve_chunks.no_results",
+                    session_id=session_id,
+                )
+                return []
+
+            # Get database session to fetch article metadata
+            # Note: We don't have direct DB access here, so we'll use the metadata
+            # from the search results which includes article_id, source_url, source_title
+
+            # Transform SearchResult to expected chunk format
+            chunks = []
+            for result in response.results:
+                chunks.append(
+                    {
+                        "content": result.content or "",
+                        "article_id": result.article_id,
+                        "chunk_id": result.chunk_id,
+                        "title": result.source_title,
+                        "url": result.source_url,
+                        "score": result.score,
+                        "dense_rank": result.dense_rank,
+                        "sparse_rank": result.sparse_rank,
+                    }
+                )
+
+            return chunks
+
+        except Exception as e:
+            # Log error but don't crash chat
+            logger.error(
+                "rag.retrieve_chunks.search_failed",
+                session_id=session_id,
+                error=str(e),
+                exc_info=True,
+            )
+            return []
 
     def _extract_cited_sources(
         self,

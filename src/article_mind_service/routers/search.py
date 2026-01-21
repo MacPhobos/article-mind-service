@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from article_mind_service.database import get_db
 from article_mind_service.embeddings import get_embedding_provider
+from article_mind_service.logging_config import get_logger
 from article_mind_service.schemas.search import (
     SearchMode,
     SearchRequest,
@@ -21,6 +22,7 @@ from article_mind_service.schemas.search import (
 from article_mind_service.search import BM25IndexCache, HybridSearch
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
+logger = get_logger(__name__)
 
 
 # Singleton search instance
@@ -99,6 +101,11 @@ async def search_session(
     bm25_index = BM25IndexCache.get(session_id)
     if bm25_index is None or len(bm25_index) == 0:
         # No indexed content for this session
+        logger.warning(
+            "search.endpoint.no_index",
+            session_id=session_id,
+            query=request.query[:100],
+        )
         return SearchResponse(
             query=request.query,
             results=[],
@@ -118,6 +125,12 @@ async def search_session(
                 query_embedding = embeddings[0]
             except Exception as e:
                 # Fall back to sparse-only if embedding generation fails
+                logger.warning(
+                    "search.endpoint.embedding_failed",
+                    session_id=session_id,
+                    error=str(e),
+                    fallback_mode="sparse" if request.search_mode == SearchMode.HYBRID else None,
+                )
                 if request.search_mode == SearchMode.DENSE:
                     raise HTTPException(
                         status_code=status.HTTP_501_NOT_IMPLEMENTED,

@@ -207,3 +207,41 @@ class SessionListResponse(BaseModel):
             ]
         },
     }
+
+
+class ReindexResponse(BaseModel):
+    """Response schema for session reindex operation.
+
+    Returned when manually triggering reindexing of articles in a session.
+    This operation queues articles for embedding that were previously extracted
+    but failed to be indexed (e.g., before auto-embedding was enabled).
+    """
+
+    session_id: int = Field(
+        ...,
+        description="ID of the session that was reindexed",
+        examples=[179],
+    )
+    articles_queued: int = Field(
+        ...,
+        ge=0,
+        description="Number of articles queued for reindexing",
+        examples=[3],
+    )
+    article_ids: list[int] = Field(
+        ...,
+        description="List of article IDs queued for reindexing",
+        examples=[[39, 40, 41]],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "session_id": 179,
+                    "articles_queued": 3,
+                    "article_ids": [39, 40, 41],
+                }
+            ]
+        },
+    }

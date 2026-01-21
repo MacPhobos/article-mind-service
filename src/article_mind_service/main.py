@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .database import engine
+from .logging_config import configure_logging
 from .routers import (
     articles_router,
     chat_router,
@@ -17,6 +18,9 @@ from .routers import (
     search_router,
     sessions_router,
 )
+
+# Configure structured logging at application startup
+configure_logging(log_level=settings.log_level, json_logs=False)
 
 # Configure SQLAlchemy logging level (suppress INFO logs like "BEGIN", "COMMIT")
 logging.getLogger("sqlalchemy.engine").setLevel(

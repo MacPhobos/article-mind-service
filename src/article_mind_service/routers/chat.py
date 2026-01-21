@@ -13,6 +13,7 @@ from article_mind_service.schemas.chat import (
     ChatRequest,
     ChatResponse,
     ChatSource,
+    RetrievalMetadata,
 )
 
 router = APIRouter(
@@ -90,7 +91,7 @@ async def send_chat_message(
             detail=f"Failed to generate response: {str(e)}",
         ) from e
 
-    # Save assistant response
+    # Save assistant response with retrieval metadata (P2 enhancement)
     assistant_message = ChatMessage(
         session_id=session_id,
         role="assistant",
@@ -99,9 +100,24 @@ async def send_chat_message(
         llm_provider=rag_response.llm_provider,
         llm_model=rag_response.llm_model,
         tokens_used=rag_response.tokens_used,
+        retrieval_metadata=rag_response.retrieval_metadata,
+        context_chunks=rag_response.context_chunks,
     )
     db.add(assistant_message)
     await db.commit()
+
+    # Build retrieval metadata from RAG response (P2 enhancement)
+    retrieval_metadata = None
+    if rag_response.retrieval_metadata:
+        retrieval_metadata = RetrievalMetadata(
+            chunks_retrieved=rag_response.retrieval_metadata.get("chunks_retrieved", 0),
+            chunks_cited=rag_response.retrieval_metadata.get("chunks_cited", 0),
+            search_mode=rag_response.retrieval_metadata.get("search_mode", "hybrid"),
+            search_timing_ms=rag_response.retrieval_metadata.get("search_timing_ms"),
+            total_chunks_in_session=rag_response.retrieval_metadata.get(
+                "total_chunks_in_session"
+            ),
+        )
 
     # Build response
     return ChatResponse(
@@ -112,6 +128,7 @@ async def send_chat_message(
         llm_model=rag_response.llm_model,
         tokens_used=rag_response.tokens_used,
         created_at=assistant_message.created_at,
+        retrieval_metadata=retrieval_metadata,
     )
 
 

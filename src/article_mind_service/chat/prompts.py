@@ -71,6 +71,15 @@ def format_context_with_metadata(
         - chunk_id: str
         - title: str | None
         - url: str | None
+        - score: float | None (RRF relevance score)
+        - dense_rank: int | None (semantic search rank)
+        - sparse_rank: int | None (keyword search rank)
+
+    Design Decision: Full content in source_metadata
+    - Changed from 200-char excerpt to full content
+    - Enables users to verify what content was actually used
+    - Allows assessment of citation relevance
+    - Trade-off: Larger response size vs. transparency
     """
     if not chunks:
         return "No relevant context found.", []
@@ -91,7 +100,7 @@ def format_context_with_metadata(
 
         formatted_lines.append(f"[{i}] {content}\n{source_ref}")
 
-        # Track source metadata for response
+        # Track source metadata for response with full content and search metadata
         source_metadata.append(
             {
                 "citation_index": i,
@@ -99,7 +108,13 @@ def format_context_with_metadata(
                 "chunk_id": chunk.get("chunk_id"),
                 "title": title,
                 "url": url,
-                "excerpt": content[:200] + "..." if len(content) > 200 else content,
+                # CHANGED: Full content instead of 200-char excerpt
+                "content": content,
+                # NEW: Search metadata for transparency
+                "relevance_score": chunk.get("score"),
+                "search_method": "hybrid",  # From search mode
+                "dense_rank": chunk.get("dense_rank"),
+                "sparse_rank": chunk.get("sparse_rank"),
             }
         )
 

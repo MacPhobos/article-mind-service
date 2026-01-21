@@ -29,6 +29,8 @@ class ChatMessage(Base):
         llm_model: Specific model used (e.g., "gpt-4o-mini")
         tokens_used: Total tokens consumed for this message
         created_at: When the message was created
+        retrieval_metadata: Search and retrieval metadata (search mode, chunks count, timing)
+        context_chunks: Full chunks used for context with scores and ranks (audit trail)
     """
 
     __tablename__ = "chat_messages"
@@ -77,6 +79,18 @@ class ChatMessage(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    # RAG traceability metadata (P2 enhancement)
+    retrieval_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Search and retrieval metadata for audit trail",
+    )
+    context_chunks: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Full chunks used for context (audit trail)",
     )
 
     # Relationships
