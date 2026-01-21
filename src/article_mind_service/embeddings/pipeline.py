@@ -5,6 +5,8 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from article_mind_service.search.sparse_search import BM25IndexCache
+
 from .base import EmbeddingProvider
 from .chromadb_store import ChromaDBStore
 from .chunker import TextChunker
@@ -19,7 +21,8 @@ class EmbeddingPipeline:
         2. Chunk text using TextChunker
         3. Generate embeddings in batches
         4. Store in ChromaDB with metadata
-        5. Update article status in PostgreSQL
+        5. Populate BM25 index for keyword search
+        6. Update article status in PostgreSQL
 
     Design Decisions:
 
@@ -28,12 +31,17 @@ class EmbeddingPipeline:
        - Balance memory usage and efficiency
        - Progress updates after each batch
 
-    2. Error Recovery:
+    2. BM25 Index Population:
+       - BM25 index populated during embedding (not on-demand)
+       - Ensures content available for hybrid search
+       - In-memory index rebuilt on service restart
+
+    3. Error Recovery:
        - Store progress in database
        - Resume from last successful batch
        - Mark failed articles for retry
 
-    3. Status Tracking:
+    4. Status Tracking:
        - pending: Article queued for embedding
        - processing: Currently generating embeddings
        - completed: All chunks embedded
@@ -43,11 +51,13 @@ class EmbeddingPipeline:
         - Time Complexity: O(n) where n = number of chunks
         - Typical article (5K words): ~2-5 seconds
         - Bottleneck: Embedding generation, not storage
+        - BM25 indexing: ~5-10ms overhead per article
 
     Trade-offs:
         - Batch size 100: Good balance memory/speed
         - Status tracking: Overhead for reliability
         - Synchronous updates: Simpler than async queue
+        - BM25 in-memory: Fast but lost on restart (rebuilds on reindex)
     """
 
     BATCH_SIZE = 100
@@ -122,7 +132,11 @@ class EmbeddingPipeline:
                 dimensions=self.provider.dimensions,
             )
 
-            # Step 3: Process in batches
+            # Step 3: Prepare BM25 index data
+            # Collect all (chunk_id, content) tuples for BM25 indexing
+            bm25_chunks: list[tuple[str, str]] = []
+
+            # Step 4: Process in batches
             total_chunks = len(chunks)
             for batch_start in range(0, total_chunks, self.BATCH_SIZE):
                 batch_end = min(batch_start + self.BATCH_SIZE, total_chunks)
@@ -153,6 +167,24 @@ class EmbeddingPipeline:
                     metadatas=metadatas,
                     ids=ids,
                 )
+
+                # Collect BM25 data (chunk_id, content) for this batch
+                for chunk_id, text in zip(ids, batch_texts):
+                    bm25_chunks.append((chunk_id, text))
+
+            # Step 5: Populate BM25 index with all chunks
+            # Convert session_id to int for BM25IndexCache
+            session_id_int = int(session_id)
+
+            # Get existing index or create new one
+            bm25_index = BM25IndexCache.get_or_create(session_id_int)
+
+            # Add all chunks from this article to BM25 index
+            for chunk_id, content in bm25_chunks:
+                bm25_index.add_document(chunk_id, content)
+
+            # Build the BM25 index (lazy build triggers on first search, but we can force it here)
+            bm25_index.build()
 
             # Update status to completed
             await self._update_status(db, article_id, "completed", chunk_count=total_chunks)
