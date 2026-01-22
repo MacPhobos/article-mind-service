@@ -18,6 +18,7 @@ from .routers import (
     health_router,
     search_router,
     sessions_router,
+    settings_router,
 )
 
 # Configure structured logging at application startup
@@ -92,6 +93,9 @@ app.include_router(chat_router)
 
 # Admin API (system operations)
 app.include_router(admin_router)
+
+# Settings API (provider configuration)
+app.include_router(settings_router)
 
 
 @app.get("/")

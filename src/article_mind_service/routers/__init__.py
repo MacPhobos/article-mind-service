@@ -6,6 +6,7 @@ from .chat import router as chat_router
 from .health import router as health_router
 from .search import router as search_router
 from .sessions import router as sessions_router
+from .settings import router as settings_router
 
 __all__ = [
     "admin_router",
@@ -14,4 +15,5 @@ __all__ = [
     "health_router",
     "search_router",
     "sessions_router",
+    "settings_router",
 ]
