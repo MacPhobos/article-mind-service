@@ -20,6 +20,13 @@ from .session import (
     SessionStatus,
     UpdateSessionRequest,
 )
+from .settings import (
+    ProviderConfigResponse,
+    UpdateEmbeddingProviderRequest,
+    UpdateEmbeddingProviderResponse,
+    UpdateLlmProviderRequest,
+    UpdateLlmProviderResponse,
+)
 
 __all__ = [
     # Health
@@ -48,4 +55,10 @@ __all__ = [
     "AdminReindexRequest",
     "AdminReindexResponse",
     "TaskStatusResponse",
+    # Settings
+    "ProviderConfigResponse",
+    "UpdateEmbeddingProviderRequest",
+    "UpdateEmbeddingProviderResponse",
+    "UpdateLlmProviderRequest",
+    "UpdateLlmProviderResponse",
 ]

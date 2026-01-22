@@ -5,6 +5,7 @@
 
 from .article import Article, ArticleType, ExtractionStatus
 from .chat import ChatMessage
+from .provider_settings import ProviderSettings
 from .session import ResearchSession, SessionStatus
 
 __all__ = [
@@ -12,6 +13,7 @@ __all__ = [
     "ArticleType",
     "ExtractionStatus",
     "ChatMessage",
+    "ProviderSettings",
     "ResearchSession",
     "SessionStatus",
 ]
