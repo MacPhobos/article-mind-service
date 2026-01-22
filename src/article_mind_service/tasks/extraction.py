@@ -98,7 +98,8 @@ async def extract_article_content(
 
                 logger.info(f"Starting embedding pipeline for article {article_id}")
 
-                embedding_pipeline = get_embedding_pipeline()
+                # Pass db session to use database provider settings
+                embedding_pipeline = await get_embedding_pipeline(db=db)
                 chunk_count = await embedding_pipeline.process_article(
                     article_id=article.id,
                     session_id=str(article.session_id),

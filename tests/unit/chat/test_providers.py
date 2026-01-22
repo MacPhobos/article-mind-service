@@ -85,27 +85,30 @@ class TestAnthropicProvider:
 class TestProviderFactory:
     """Tests for provider factory."""
 
-    def test_get_openai_provider(self):
+    @pytest.mark.asyncio
+    async def test_get_openai_provider(self):
         """Test getting OpenAI provider."""
         with patch("article_mind_service.chat.providers.settings") as mock_settings:
             mock_settings.openai_api_key = "test-key"
             mock_settings.llm_provider = "openai"
             mock_settings.llm_model = "gpt-4o-mini"
 
-            provider = get_llm_provider("openai")
+            provider = await get_llm_provider(provider_override="openai")
             assert isinstance(provider, OpenAIProvider)
 
-    def test_get_anthropic_provider(self):
+    @pytest.mark.asyncio
+    async def test_get_anthropic_provider(self):
         """Test getting Anthropic provider."""
         with patch("article_mind_service.chat.providers.settings") as mock_settings:
             mock_settings.anthropic_api_key = "test-key"
             mock_settings.llm_provider = "anthropic"
             mock_settings.llm_model = "claude-sonnet-4-5-20241022"
 
-            provider = get_llm_provider("anthropic")
+            provider = await get_llm_provider(provider_override="anthropic")
             assert isinstance(provider, AnthropicProvider)
 
-    def test_invalid_provider(self):
+    @pytest.mark.asyncio
+    async def test_invalid_provider(self):
         """Test invalid provider name."""
         with pytest.raises(ValueError):
-            get_llm_provider("invalid")  # type: ignore[arg-type]
+            await get_llm_provider(provider_override="invalid")  # type: ignore[arg-type]

@@ -205,9 +205,10 @@ async def reindex_all_articles(
         )
 
         # Initialize embedding pipeline
+        # Pass db session to use database provider settings
         from article_mind_service.embeddings import get_embedding_pipeline
 
-        pipeline = get_embedding_pipeline()
+        pipeline = await get_embedding_pipeline(db=db)
 
         # Process each article with progress tracking
         processed = 0

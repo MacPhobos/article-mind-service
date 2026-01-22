@@ -72,18 +72,33 @@ class RAGPipeline:
         """Initialize RAG pipeline.
 
         Args:
-            provider: LLM provider to use (default from settings)
+            provider: LLM provider to use (explicit override)
             max_context_chunks: Max chunks to include (default from settings)
         """
-        self.provider_name = provider or settings.llm_provider
+        self.provider_override = provider
         self.max_context_chunks = max_context_chunks or settings.rag_context_chunks
         self._llm_provider: Any = None
+        self._db_session: AsyncSession | None = None
 
-    @property
-    def llm_provider(self) -> Any:
-        """Lazy-initialize LLM provider."""
+    async def _get_llm_provider(self, db: AsyncSession | None = None) -> Any:
+        """Get LLM provider using database settings when available.
+
+        Design Decision: Lazy initialization with database support
+        - Rationale: Allows db session to be passed at query time
+        - Provider can use database settings or fall back to .env
+        - Cached after first call to avoid repeated database queries
+
+        Args:
+            db: Database session for reading provider settings
+
+        Returns:
+            Configured LLM provider instance
+        """
         if self._llm_provider is None:
-            self._llm_provider = get_llm_provider(self.provider_name)
+            self._llm_provider = await get_llm_provider(
+                db=db,
+                provider_override=self.provider_override,
+            )
         return self._llm_provider
 
     async def query(
@@ -171,7 +186,10 @@ class RAGPipeline:
         # Step 3: Generate answer
         system_prompt = build_system_prompt(has_context=has_context)
 
-        llm_response = await self.llm_provider.generate(
+        # Get LLM provider with database settings support
+        llm_provider = await self._get_llm_provider(db=db)
+
+        llm_response = await llm_provider.generate(
             system_prompt=system_prompt,
             user_message=question,
             context_chunks=[context_str] if has_context else [],
@@ -293,7 +311,7 @@ class RAGPipeline:
             )
 
             try:
-                provider = get_embedding_provider()
+                provider = await get_embedding_provider()
                 embeddings = await provider.embed([query])
                 query_embedding = embeddings[0]
             except Exception as e:

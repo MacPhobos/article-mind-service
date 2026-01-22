@@ -445,7 +445,8 @@ async def reindex_session(
     # Import here to avoid circular dependency and keep module loading fast
     from article_mind_service.embeddings import get_embedding_pipeline
 
-    pipeline = get_embedding_pipeline()
+    # Pass db session to use database provider settings
+    pipeline = await get_embedding_pipeline(db=db)
 
     for article in articles:
         # Add background task to process this article

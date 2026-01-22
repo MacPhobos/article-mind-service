@@ -119,8 +119,9 @@ async def search_session(
         query_embedding: list[float] = []
         if request.search_mode in (SearchMode.DENSE, SearchMode.HYBRID):
             # Get embedding provider and generate query embedding
+            # Pass db session to use database provider settings
             try:
-                provider = get_embedding_provider()
+                provider = await get_embedding_provider(db=db)
                 embeddings = await provider.embed([request.query])
                 query_embedding = embeddings[0]
             except Exception as e:
