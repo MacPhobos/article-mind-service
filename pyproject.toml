@@ -35,6 +35,8 @@ dependencies = [
     # Search
     "rank-bm25>=0.2.2",
     "numpy>=1.26.0",
+    "nltk>=3.8.0",
+    "sentence-transformers>=2.2.0",
     # Logging
     "structlog>=24.0.0",
     # Server-Sent Events
@@ -97,6 +99,9 @@ module = [
     "fitz.*",
     "pymupdf4llm.*",
     "playwright.*",
+    "nltk.*",
+    "sentence_transformers.*",
+    "rank_bm25.*",
 ]
 ignore_missing_imports = true
 

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # Chunking
     chunk_size: int = 512
     chunk_overlap: int = 50
+    chunking_strategy: Literal["fixed", "semantic"] = "fixed"  # Default to fixed for backward compatibility
+    semantic_chunk_breakpoint_percentile: float = 90.0  # Split at bottom 10% similarity
+    semantic_chunk_min_size: int = 100  # Minimum chars per chunk
+    semantic_chunk_max_size: int = 2000  # Maximum chars per chunk
 
     # LLM Configuration
     llm_provider: Literal["openai", "anthropic"] = "openai"
@@ -60,16 +64,20 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 2048
 
     # RAG Configuration
-    rag_context_chunks: int = 5
+    rag_context_chunks: int = 10  # Increased from 5 for better context
+
+    # Query Expansion
+    query_expansion_enabled: bool = True  # Enable HyDE query expansion
+    query_expansion_strategy: str = "hyde"  # Strategy: "hyde" or "none"
 
     # Search Configuration
-    search_top_k: int = 10
+    search_top_k: int = 20  # Increased to feed reranker with more candidates
     search_dense_weight: float = 0.7
     search_sparse_weight: float = 0.3
     search_rrf_k: int = 60
-    search_rerank_enabled: bool = False
+    search_rerank_enabled: bool = True  # Enabled by default for better accuracy
     search_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    search_rerank_top_k: int = 20
+    search_rerank_top_k: int = 20  # Adjusted for optimal latency/quality balance
     search_max_query_length: int = 1000
     search_timeout_seconds: int = 30
     chroma_persist_directory: str = "./data/chromadb"

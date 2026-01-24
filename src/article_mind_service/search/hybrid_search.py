@@ -198,6 +198,7 @@ class HybridSearch:
                     session_id=session_id,
                     query_embedding=query_embedding,
                     top_k=retrieve_k,
+                    filters=request.filters,  # Pass filters to dense search
                 )
             ]
 
@@ -236,12 +237,63 @@ class HybridSearch:
                 for i, (cid, score) in enumerate(sparse_results)
             ]
 
-        # Optional reranking (placeholder - not implemented yet)
+        # Optional reranking: Re-score and re-sort using cross-encoder
         if self.rerank_enabled and self.reranker and ranked:
-            # TODO: Implement reranking when needed
-            pass
+            # Initialize reranker if not already done
+            if self.reranker is None:
+                self.reranker = Reranker()
 
-        # Limit to requested top_k
+            # Extract content for reranking (need to fetch from BM25 index)
+            bm25_index = self.sparse.get_index(session_id)
+            documents = []
+            for r in ranked:
+                content = None
+                if bm25_index:
+                    content = bm25_index.get_content(r.chunk_id)
+                documents.append(content or "")
+
+            # Get reranker scores
+            rerank_scores = await self.reranker.rerank(
+                query=request.query,
+                documents=documents,
+            )
+
+            # Normalize scores to [0, 1] range
+            # Cross-encoder scores are logits (can be negative)
+            # We need non-negative scores for the API schema
+            if rerank_scores:
+                min_score = min(rerank_scores)
+                max_score = max(rerank_scores)
+                score_range = max_score - min_score
+
+                if score_range > 0:
+                    # Min-max normalization
+                    normalized_scores = [
+                        (score - min_score) / score_range
+                        for score in rerank_scores
+                    ]
+                else:
+                    # All scores the same - use uniform distribution
+                    normalized_scores = [0.5] * len(rerank_scores)
+
+                # Update RRF scores with normalized reranker scores
+                # Design Decision: Replace RRF score with reranker score
+                # - Reranker provides more accurate relevance than RRF
+                # - RRF is first-stage retrieval, reranker is second-stage refinement
+                # - Scores normalized to [0, 1] for API contract compliance
+                for i, r in enumerate(ranked):
+                    r.rrf_score = normalized_scores[i]
+
+            # Re-sort by reranker scores
+            ranked.sort(key=lambda r: r.rrf_score, reverse=True)
+
+            logger.info(
+                "search.hybrid.reranking_complete",
+                session_id=session_id,
+                candidates_reranked=len(ranked),
+            )
+
+        # Limit to requested top_k after reranking
         ranked = ranked[: request.top_k]
 
         # Build response with content and metadata

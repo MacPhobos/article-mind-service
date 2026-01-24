@@ -1,16 +1,24 @@
 """Embedding pipeline orchestrator."""
 
+import re
 from typing import Any
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from article_mind_service.config import settings
 from article_mind_service.search.sparse_search import BM25IndexCache
 
 from .base import EmbeddingProvider
 from .chromadb_store import ChromaDBStore
 from .chunker import TextChunker
+from .chunking_strategy import (
+    ChunkingStrategy,
+    FixedSizeChunkingStrategy,
+    SemanticChunkingStrategy,
+)
 from .exceptions import EmbeddingError
+from .semantic_chunker import SemanticChunker
 
 
 class EmbeddingPipeline:
@@ -67,17 +75,37 @@ class EmbeddingPipeline:
         provider: EmbeddingProvider,
         store: ChromaDBStore,
         chunker: TextChunker,
+        chunking_strategy: ChunkingStrategy | None = None,
     ):
         """Initialize pipeline.
 
         Args:
             provider: Embedding provider (OpenAI or Ollama).
             store: ChromaDB store instance.
-            chunker: Text chunking instance.
+            chunker: Text chunking instance (used for fixed-size strategy).
+            chunking_strategy: Optional chunking strategy. If None, creates
+                strategy based on settings.chunking_strategy.
+
+        Design Decision: Dependency Injection for Chunking Strategy
+        ============================================================
+
+        Rationale: Pass strategy via constructor instead of creating inside __init__.
+        - Testability: Easy to inject mock strategies
+        - Flexibility: Override strategy per pipeline instance
+        - Configuration: Factory function handles strategy selection
+
+        Trade-off: Caller must create strategy (more verbose)
         """
         self.provider = provider
         self.store = store
         self.chunker = chunker
+
+        # Create chunking strategy based on configuration if not provided
+        if chunking_strategy is None:
+            chunking_strategy = get_chunking_strategy(
+                embedding_provider=provider, text_chunker=chunker
+            )
+        self.chunking_strategy = chunking_strategy
 
     async def process_article(
         self,
@@ -113,18 +141,29 @@ class EmbeddingPipeline:
         await self._update_status(db, article_id, "processing")
 
         try:
-            # Step 1: Chunk the text
-            chunks = self.chunker.chunk_with_metadata(
+            # Step 1: Chunk the text using configured strategy
+            chunk_results = await self.chunking_strategy.chunk(
                 text,
-                source_metadata={
+                metadata={
                     "article_id": article_id,
                     "source_url": source_url,
                 },
             )
 
-            if not chunks:
+            if not chunk_results:
                 await self._update_status(db, article_id, "completed", chunk_count=0)
                 return 0
+
+            # Convert ChunkResult to dict format for backward compatibility
+            chunks = [
+                {
+                    "text": c.text,
+                    "chunk_index": c.chunk_index,
+                    "article_id": c.metadata.get("article_id", article_id),
+                    "source_url": c.metadata.get("source_url", source_url),
+                }
+                for c in chunk_results
+            ]
 
             # Step 2: Get or create collection
             collection = self.store.get_or_create_collection(
@@ -155,6 +194,9 @@ class EmbeddingPipeline:
                         "article_id": c["article_id"],
                         "chunk_index": c["chunk_index"],
                         "source_url": c["source_url"],
+                        # Enhanced metadata for filtering
+                        "word_count": len(c["text"].split()),
+                        "has_code": bool(re.search(r'```|def |class |function |import |const |let |var ', c["text"])),
                     }
                     for c in batch
                 ]
@@ -219,3 +261,65 @@ class EmbeddingPipeline:
         stmt = update(Article).where(Article.id == article_id).values(**values)
         await db.execute(stmt)
         await db.commit()
+
+
+def get_chunking_strategy(
+    embedding_provider: EmbeddingProvider | None = None,
+    text_chunker: TextChunker | None = None,
+) -> ChunkingStrategy:
+    """Get chunking strategy based on configuration.
+
+    Design Decision: Factory Function for Strategy Creation
+    =======================================================
+
+    Rationale: Centralize strategy creation logic in factory function.
+    - Configuration-driven: Read from settings.chunking_strategy
+    - Default fallback: Fixed-size if semantic not configured properly
+    - Testability: Easy to override in tests
+
+    Args:
+        embedding_provider: Embedding provider (required for semantic chunking).
+        text_chunker: Text chunker (required for fixed-size chunking).
+
+    Returns:
+        Configured chunking strategy.
+
+    Raises:
+        ValueError: If semantic strategy selected but no embedding provider.
+
+    Performance:
+        - Fixed-size: 10KB text ~50ms
+        - Semantic: 10KB text ~2-5 seconds (requires embedding all sentences)
+
+    Example:
+        # Create semantic strategy
+        strategy = get_chunking_strategy(
+            embedding_provider=openai_provider,
+            text_chunker=text_chunker,
+        )
+
+        # Or create fixed-size strategy (default)
+        strategy = get_chunking_strategy(text_chunker=text_chunker)
+    """
+    if settings.chunking_strategy == "semantic" and embedding_provider:
+        semantic_chunker = SemanticChunker(
+            embedding_provider=embedding_provider,
+            breakpoint_percentile=settings.semantic_chunk_breakpoint_percentile,
+            min_chunk_size=settings.semantic_chunk_min_size,
+            max_chunk_size=settings.semantic_chunk_max_size,
+        )
+        return SemanticChunkingStrategy(semantic_chunker)
+    else:
+        # Fallback to fixed-size if:
+        # 1. chunking_strategy == "fixed"
+        # 2. chunking_strategy == "semantic" but no embedding_provider
+        # 3. Unknown strategy value
+
+        # Create text chunker if not provided
+        if text_chunker is None:
+            text_chunker = TextChunker(
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
+            )
+
+        return FixedSizeChunkingStrategy(text_chunker)

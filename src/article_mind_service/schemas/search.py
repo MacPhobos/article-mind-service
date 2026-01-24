@@ -8,9 +8,11 @@ Research Foundation:
 - Top-K retrieval: 10-20 chunks optimal for synthesis
 - Hybrid search: Best quality (combines semantic + keyword)
 - Source attribution: Essential for citation support
+- Metadata filtering: Enables filtering by article, content type, etc.
 """
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -66,6 +68,11 @@ class SearchRequest(BaseModel):
     search_mode: SearchMode = Field(
         default=SearchMode.HYBRID,
         description="Search mode: dense, sparse, or hybrid",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata filters (e.g., article_id, has_code)",
+        examples=[{"article_id": 42}, {"has_code": True}],
     )
 
 

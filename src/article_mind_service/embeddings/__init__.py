@@ -7,11 +7,19 @@ from article_mind_service.config import settings
 from .base import EmbeddingProvider
 from .chromadb_store import ChromaDBStore
 from .chunker import TextChunker
+from .chunking_strategy import (
+    ChunkingStrategy,
+    ChunkResult,
+    FixedSizeChunkingStrategy,
+    SemanticChunkingStrategy,
+)
 from .client import get_chromadb_client
 from .exceptions import EmbeddingError
+from .migration import ChunkingMigration, migrate_to_semantic
 from .ollama_provider import OllamaEmbeddingProvider
 from .openai_provider import OpenAIEmbeddingProvider
-from .pipeline import EmbeddingPipeline
+from .pipeline import EmbeddingPipeline, get_chunking_strategy
+from .semantic_chunker import SemanticChunk, SemanticChunker
 
 
 async def get_embedding_provider(
@@ -135,14 +143,29 @@ async def get_embedding_pipeline(
 
 
 __all__ = [
+    # Core providers and pipeline
     "EmbeddingProvider",
     "OpenAIEmbeddingProvider",
     "OllamaEmbeddingProvider",
-    "TextChunker",
-    "ChromaDBStore",
     "EmbeddingPipeline",
-    "EmbeddingError",
+    "ChromaDBStore",
     "get_chromadb_client",
     "get_embedding_provider",
     "get_embedding_pipeline",
+    # Chunking (fixed-size)
+    "TextChunker",
+    # Chunking (semantic)
+    "SemanticChunker",
+    "SemanticChunk",
+    # Chunking strategies
+    "ChunkingStrategy",
+    "ChunkResult",
+    "FixedSizeChunkingStrategy",
+    "SemanticChunkingStrategy",
+    "get_chunking_strategy",
+    # Migration utilities
+    "ChunkingMigration",
+    "migrate_to_semantic",
+    # Exceptions
+    "EmbeddingError",
 ]

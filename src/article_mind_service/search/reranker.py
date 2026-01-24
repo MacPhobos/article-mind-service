@@ -88,23 +88,27 @@ class Reranker:
         - Latency grows linearly with number of documents
         - Run on GPU for faster inference in production
 
-        Note: This is a placeholder. Actual implementation requires
-        sentence-transformers library.
+        Design Decision: Always score when enabled
+        - Rationale: If reranking is enabled, we should always use the model
+        - No dummy scores - fail explicitly if model can't load
+        - Helps catch configuration issues early
         """
         if not documents:
             return []
 
-        # Placeholder: Return dummy scores if not enabled
+        # If reranking disabled, return uniform scores (no reranking effect)
         if not settings.search_rerank_enabled:
             return [0.5] * len(documents)
 
-        # Load model on first use
+        # Load model on first use (may raise RuntimeError if dependencies missing)
         model = self._load_model()
 
-        # Create query-document pairs
+        # Create query-document pairs for cross-encoder
         pairs = [(query, doc) for doc in documents]
 
-        # Get scores from cross-encoder
+        # Get scores from cross-encoder model
+        # Note: This is CPU-bound and runs synchronously in the model
+        # For production, consider running in thread pool executor
         scores = model.predict(pairs)  # type: ignore
 
         return [float(s) for s in scores]

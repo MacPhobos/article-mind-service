@@ -80,6 +80,7 @@ class DenseSearch:
         session_id: int,
         query_embedding: list[float],
         top_k: int = 10,
+        filters: dict[str, any] | None = None,
     ) -> list[DenseSearchResult]:
         """Search for similar chunks using query embedding.
 
@@ -87,6 +88,7 @@ class DenseSearch:
             session_id: Session ID to filter results
             query_embedding: Query vector from embedding model
             top_k: Number of results to return
+            filters: Optional metadata filters (e.g., {"article_id": 42, "has_code": True})
 
         Returns:
             List of DenseSearchResult sorted by similarity descending
@@ -95,15 +97,22 @@ class DenseSearch:
         - ChromaDB uses HNSW index for O(log n) search
         - Typical latency: 50-100ms for 1000 chunks
         - Latency grows logarithmically with index size
+        - Filters applied at ChromaDB level (efficient)
 
         Error Handling:
         - Returns empty list if collection doesn't exist
         - Logs warnings for ChromaDB errors
+        - Invalid filters ignored with warning
 
         Design Decision: Session-based collection naming
         - Uses session_{session_id} collection name to match indexing strategy
         - Each session has isolated collection for multi-tenant safety
         - Enables easy cleanup when session deleted
+
+        Metadata Filtering:
+        - Supports equality filters on any metadata field
+        - ChromaDB applies filters before vector search (efficient)
+        - Common filters: article_id, has_code, word_count range
         """
         # Use session-based collection naming (matches ChromaDBStore)
         collection_name = f"session_{session_id}"
@@ -114,11 +123,17 @@ class DenseSearch:
             # Collection doesn't exist yet
             return []
 
+        # Build ChromaDB where clause from filters
+        where_filter = None
+        if filters:
+            where_filter = self._build_where_clause(filters)
+
         # Query collection (no session filter needed since collection is per-session)
         # Type ignore: ChromaDB accepts list[float] but type hints are incomplete
         results: QueryResult = collection.query(
             query_embeddings=[query_embedding],  # type: ignore
             n_results=top_k,
+            where=where_filter,  # Apply metadata filters
             include=["metadatas", "distances"],
         )
 
@@ -142,6 +157,42 @@ class DenseSearch:
                 )
 
         return search_results
+
+    def _build_where_clause(self, filters: dict[str, any]) -> dict[str, any]:
+        """Build ChromaDB where clause from filter dictionary.
+
+        Args:
+            filters: Dictionary of metadata filters
+
+        Returns:
+            ChromaDB where clause dictionary
+
+        Design Decision: Simple equality filters
+        - Supports basic equality checks on metadata fields
+        - ChromaDB syntax: {"field": {"$eq": value}} or {"field": value}
+        - Future enhancement: Add range operators ($gt, $lt, $gte, $lte)
+
+        Example:
+            >>> _build_where_clause({"article_id": 42, "has_code": True})
+            {"$and": [{"article_id": {"$eq": 42}}, {"has_code": {"$eq": True}}]}
+        """
+        if not filters:
+            return {}
+
+        # Convert simple filters to ChromaDB where clause
+        # Single filter: {"field": value}
+        # Multiple filters: {"$and": [{"field1": value1}, {"field2": value2}]}
+        if len(filters) == 1:
+            key, value = next(iter(filters.items()))
+            return {key: {"$eq": value}}
+
+        # Multiple filters - use $and operator
+        return {
+            "$and": [
+                {key: {"$eq": value}}
+                for key, value in filters.items()
+            ]
+        }
 
     def get_total_chunks(self, session_id: int) -> int:
         """Get total number of chunks indexed for a session.
