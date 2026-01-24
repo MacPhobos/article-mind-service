@@ -143,7 +143,7 @@ class RAGPipeline:
             chunk_ids=[c.get("chunk_id") for c in chunks][:5],  # First 5 IDs only
         )
 
-        # Debug: Log detailed chunk content preview
+        # Debug: Log each retrieved chunk with detailed metadata
         if chunks:
             total_chars = sum(len(c.get("content", "")) for c in chunks)
             logger.debug(
@@ -151,24 +151,49 @@ class RAGPipeline:
                 session_id=session_id,
                 total_context_chars=total_chars,
             )
+
+            # Log each chunk individually for debugging
+            chunks_retrieved_logger = get_logger("rag.query.chunks_retrieved")
             for idx, chunk in enumerate(chunks, start=1):
                 content = chunk.get("content", "")
                 chunk_id = chunk.get("chunk_id", "unknown")
+                article_id = chunk.get("article_id", "unknown")
                 title = chunk.get("title", "Unknown Article")
-                # Truncate long content to 100 chars with ellipsis
+                url = chunk.get("url", "")
+                score = chunk.get("score")
+                dense_rank = chunk.get("dense_rank")
+                sparse_rank = chunk.get("sparse_rank")
+
+                # Truncate long content to 200 chars with ellipsis for preview
                 preview = (
-                    content[:100] + "..."
-                    if len(content) > 100
+                    content[:200] + "..."
+                    if len(content) > 200
                     else content
                 )
-                logger.debug(
-                    "rag.query.chunk_detail",
-                    session_id=session_id,
-                    chunk_number=idx,
-                    chunk_id=chunk_id,
-                    article_title=title,
-                    content_preview=preview,
-                    content_chars=len(content),
+
+                # Build metadata dict for structured logging
+                chunk_metadata = {
+                    "session_id": session_id,
+                    "chunk_number": idx,
+                    "chunk_id": chunk_id,
+                    "article_id": article_id,
+                    "article_title": title,
+                    "article_url": url,
+                    "content_preview": preview,
+                    "content_length": len(content),
+                }
+
+                # Add optional ranking metadata if available
+                if score is not None:
+                    chunk_metadata["score"] = score
+                if dense_rank is not None:
+                    chunk_metadata["dense_rank"] = dense_rank
+                if sparse_rank is not None:
+                    chunk_metadata["sparse_rank"] = sparse_rank
+
+                chunks_retrieved_logger.debug(
+                    "chunk_retrieved",
+                    **chunk_metadata,
                 )
 
         # Step 2: Format context with metadata
@@ -294,6 +319,9 @@ class RAGPipeline:
                     "chunk_id": r.get("chunk_id"),
                     "title": r.get("article", {}).get("title"),
                     "url": r.get("article", {}).get("url"),
+                    "score": r.get("score"),
+                    "dense_rank": r.get("dense_rank"),
+                    "sparse_rank": r.get("sparse_rank"),
                 }
                 for r in results.get("results", [])
             ]
