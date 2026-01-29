@@ -140,11 +140,12 @@ async def search_session(
                 # For hybrid, fall back to sparse only
                 request.search_mode = SearchMode.SPARSE
 
-        # Execute search
+        # Execute search (pass db session for heuristic reranking metadata)
         response = await search.search(
             session_id=session_id,
             request=request,
             query_embedding=query_embedding,
+            db=db,  # Pass db session for article metadata fetching
         )
 
         return response

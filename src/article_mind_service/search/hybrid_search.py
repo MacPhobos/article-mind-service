@@ -19,8 +19,12 @@ Research Foundation:
 import time
 from dataclasses import dataclass
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from article_mind_service.config import settings
 from article_mind_service.logging_config import get_logger
+from article_mind_service.models.article import Article
 from article_mind_service.schemas.search import (
     SearchMode,
     SearchRequest,
@@ -29,6 +33,7 @@ from article_mind_service.schemas.search import (
 )
 
 from .dense_search import DenseSearch
+from .heuristic_reranker import heuristic_rerank
 from .reranker import Reranker
 from .sparse_search import SparseSearch
 
@@ -154,6 +159,71 @@ class HybridSearch:
         self.rrf_k = settings.search_rrf_k
         self.rerank_enabled = settings.search_rerank_enabled
 
+    async def _get_article_metadata(
+        self,
+        article_ids: list[int],
+        db: AsyncSession | None = None,
+    ) -> dict[int, dict]:
+        """Fetch article metadata for heuristic reranking.
+
+        Args:
+            article_ids: List of article IDs to fetch metadata for
+            db: Optional database session (if None, skips metadata fetching)
+
+        Returns:
+            Dict mapping article_id to metadata dict with keys:
+            - title: Article title (str | None)
+            - published_date: Publication date (datetime | None)
+            - source_url: Original or canonical URL (str | None)
+
+        Design Decision: Optional database dependency
+        - Heuristic reranking works without metadata (degraded mode)
+        - If db session not provided, returns empty dict
+        - Search router can optionally pass db session for enhanced ranking
+        - Rationale: Keep search module loosely coupled to database
+
+        Performance:
+        - Single batch query for all article IDs
+        - Time: 5-20ms for 10-50 articles
+        - No N+1 query problem
+        """
+        if db is None or not article_ids:
+            return {}
+
+        try:
+            # Batch query for all article metadata
+            query = select(
+                Article.id,
+                Article.title,
+                Article.published_date,
+                Article.original_url,
+                Article.canonical_url,
+            ).where(Article.id.in_(article_ids))
+
+            result = await db.execute(query)
+            rows = result.all()
+
+            # Build metadata dict
+            metadata_dict: dict[int, dict] = {}
+            for row in rows:
+                article_id, title, published_date, original_url, canonical_url = row
+                metadata_dict[article_id] = {
+                    "title": title,
+                    "published_date": published_date,
+                    "source_url": canonical_url or original_url,
+                }
+
+            return metadata_dict
+
+        except Exception as e:
+            # Log error but don't fail search
+            logger.warning(
+                "search.hybrid.metadata_fetch_failed",
+                error=str(e),
+                article_count=len(article_ids),
+            )
+            return {}
+
     def _get_adaptive_threshold(self, query: str, base: float = 0.3) -> float:
         """Calculate adaptive similarity threshold based on query characteristics.
 
@@ -223,6 +293,7 @@ class HybridSearch:
         session_id: int,
         request: SearchRequest,
         query_embedding: list[float],
+        db: AsyncSession | None = None,
     ) -> SearchResponse:
         """Execute hybrid search.
 
@@ -230,6 +301,8 @@ class HybridSearch:
             session_id: Session to search
             request: Search request parameters
             query_embedding: Pre-computed query embedding
+            db: Optional database session for article metadata fetching
+                (enables heuristic reranking with title/date signals)
 
         Returns:
             SearchResponse with ranked results and metadata
@@ -238,11 +311,14 @@ class HybridSearch:
         - Dense search: 50-100ms (ChromaDB HNSW)
         - Sparse search: 20-50ms (BM25)
         - RRF fusion: <5ms
-        - Total: <200ms without reranking
+        - Heuristic reranking: <5ms (metadata fetch: 5-20ms if db provided)
+        - Cross-encoder reranking: 200-500ms (if enabled)
+        - Total: <200ms without cross-encoder, <700ms with cross-encoder
 
         Error Handling:
         - Returns empty results if no index exists
         - Gracefully degrades if one search method fails
+        - Heuristic reranking works without db session (reduced signals)
         """
         start_time = time.time()
 
@@ -316,6 +392,79 @@ class HybridSearch:
                 )
                 for i, (cid, score) in enumerate(sparse_results)
             ]
+
+        # Apply heuristic reranking (lightweight signal-based boosting)
+        if ranked:
+            # Get BM25 index for content lookup
+            bm25_index = self.sparse.get_index(session_id)
+
+            # Convert RankedResult to dict format for heuristic_rerank
+            results_dicts = []
+            for r in ranked:
+                content = None
+                if bm25_index:
+                    content = bm25_index.get_content(r.chunk_id)
+
+                # Parse metadata from chunk_id if not available
+                # Format: article_{article_id}_chunk_{index}
+                metadata = {}
+                if "_chunk_" in r.chunk_id:
+                    try:
+                        parts = r.chunk_id.split("_")
+                        article_id = int(parts[1])
+                        chunk_index = int(parts[3])
+                        metadata = {
+                            "article_id": article_id,
+                            "chunk_index": chunk_index,
+                        }
+                    except (IndexError, ValueError):
+                        pass
+
+                results_dicts.append({
+                    "chunk_id": r.chunk_id,
+                    "rrf_score": r.rrf_score,
+                    "content": content or "",
+                    "metadata": metadata,
+                })
+
+            # Extract unique article IDs for metadata fetching
+            article_ids = list({
+                r["metadata"].get("article_id")
+                for r in results_dicts
+                if r["metadata"].get("article_id") is not None
+            })
+
+            # Fetch article metadata for heuristic scoring
+            article_metadata = await self._get_article_metadata(article_ids, db)
+
+            # Apply heuristic reranking
+            results_dicts = heuristic_rerank(
+                results=results_dicts,
+                query=request.query,
+                article_metadata=article_metadata,
+            )
+
+            # Update RankedResult objects with heuristic scores
+            for i, r in enumerate(ranked):
+                # Find corresponding dict result
+                matching = next(
+                    (d for d in results_dicts if d["chunk_id"] == r.chunk_id),
+                    None
+                )
+                if matching:
+                    r.rrf_score = matching["heuristic_score"]
+                    r.metadata = matching.get("metadata")
+                    r.content = matching.get("content")
+
+            # Re-sort by heuristic score
+            ranked.sort(key=lambda r: r.rrf_score, reverse=True)
+
+            logger.info(
+                "search.hybrid.heuristic_reranking_complete",
+                session_id=session_id,
+                candidates_reranked=len(ranked),
+                metadata_articles=len(article_metadata),
+            )
 
         # Optional reranking: Re-score and re-sort using cross-encoder
         if self.rerank_enabled and self.reranker and ranked:
