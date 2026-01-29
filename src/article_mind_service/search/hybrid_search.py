@@ -34,6 +34,15 @@ from .sparse_search import SparseSearch
 
 logger = get_logger(__name__)
 
+# Technical terms that benefit from lower similarity thresholds
+# These terms are precise and should match even with lower similarity
+_TECHNICAL_TERMS = frozenset([
+    "api", "oauth", "jwt", "ssl", "tls", "http", "tcp", "dns",
+    "sql", "nosql", "graphql", "rest", "grpc", "websocket",
+    "ml", "ai", "nlp", "llm", "rag", "embedding",
+    "kubernetes", "docker", "aws", "gcp", "azure",
+])
+
 
 @dataclass
 class RankedResult:
@@ -145,6 +154,70 @@ class HybridSearch:
         self.rrf_k = settings.search_rrf_k
         self.rerank_enabled = settings.search_rerank_enabled
 
+    def _get_adaptive_threshold(self, query: str, base: float = 0.3) -> float:
+        """Calculate adaptive similarity threshold based on query characteristics.
+
+        Args:
+            query: Search query string
+            base: Base threshold (default: 0.3)
+
+        Returns:
+            Adjusted similarity threshold (0.05-0.8 range)
+
+        Design Decision: Query-aware thresholds
+        - Single word: Lower threshold (~0.05) to capture sparse mentions
+        - Technical terms: Lower threshold (~0.10) for precise technical matches
+        - Quoted phrases: Higher threshold (~0.50) for exact semantic matches
+        - Short queries (2-3 words): Slightly reduced (~0.20)
+        - Long queries (>8 words): Elevated (~0.45) to filter noise
+        - Normal queries: Base threshold (0.30)
+
+        Rationale:
+        - Fixed thresholds cause short queries to return nothing
+        - Long queries return noise with fixed thresholds
+        - Technical terms are precise and benefit from lower thresholds
+        - Quoted phrases indicate user wants exact matches
+
+        Examples:
+            >>> _get_adaptive_threshold("JWT")  # Single technical term
+            0.05
+            >>> _get_adaptive_threshold("authentication flow")  # Short query
+            0.20
+            >>> _get_adaptive_threshold('"exact phrase match"')  # Quoted
+            0.50
+            >>> _get_adaptive_threshold("how does authentication work in modern web apps")  # Long
+            0.45
+        """
+        words = query.strip().split()
+        query_lower = query.lower()
+
+        # Empty query: Use base threshold
+        if len(words) == 0:
+            return base
+
+        # Single word queries: Very permissive threshold
+        if len(words) == 1:
+            return max(0.05, base - 0.25)
+
+        # Technical term queries: Lower threshold for precise terms
+        if any(term in query_lower for term in _TECHNICAL_TERMS):
+            return max(0.05, base - 0.20)
+
+        # Quoted phrase queries: Higher threshold for exact matches
+        if '"' in query:
+            return min(0.8, base + 0.2)
+
+        # Short queries (2-3 words): Slightly reduced threshold
+        if len(words) <= 3:
+            return max(0.10, base - 0.10)
+
+        # Long queries (>8 words): Elevated threshold to reduce noise
+        if len(words) > 8:
+            return min(0.7, base + 0.15)
+
+        # Normal queries: Use base threshold
+        return base
+
     async def search(
         self,
         session_id: int,
@@ -173,6 +246,11 @@ class HybridSearch:
         """
         start_time = time.time()
 
+        # Compute adaptive similarity threshold if not explicitly provided
+        threshold = request.similarity_threshold
+        if threshold is None:
+            threshold = self._get_adaptive_threshold(request.query)
+
         logger.info(
             "search.hybrid.start",
             session_id=session_id,
@@ -180,6 +258,7 @@ class HybridSearch:
             top_k=request.top_k,
             search_mode=request.search_mode.value,
             include_content=request.include_content,
+            similarity_threshold=threshold,
         )
 
         # Determine effective top_k (get more for reranking)
@@ -199,6 +278,7 @@ class HybridSearch:
                     query_embedding=query_embedding,
                     top_k=retrieve_k,
                     filters=request.filters,  # Pass filters to dense search
+                    similarity_threshold=threshold,  # Pass adaptive threshold
                 )
             ]
 

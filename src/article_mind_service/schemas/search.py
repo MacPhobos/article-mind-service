@@ -74,6 +74,13 @@ class SearchRequest(BaseModel):
         description="Optional metadata filters (e.g., article_id, has_code)",
         examples=[{"article_id": 42}, {"has_code": True}],
     )
+    similarity_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Similarity threshold for dense search (0.0-1.0). If None, uses adaptive threshold based on query.",
+        examples=[0.3, 0.5],
+    )
 
 
 class SearchResult(BaseModel):

@@ -81,6 +81,7 @@ class DenseSearch:
         query_embedding: list[float],
         top_k: int = 10,
         filters: dict[str, any] | None = None,
+        similarity_threshold: float | None = None,
     ) -> list[DenseSearchResult]:
         """Search for similar chunks using query embedding.
 
@@ -89,6 +90,7 @@ class DenseSearch:
             query_embedding: Query vector from embedding model
             top_k: Number of results to return
             filters: Optional metadata filters (e.g., {"article_id": 42, "has_code": True})
+            similarity_threshold: Minimum similarity score (0.0-1.0). Results below this are filtered out.
 
         Returns:
             List of DenseSearchResult sorted by similarity descending
@@ -148,13 +150,15 @@ class DenseSearch:
 
                 metadata = results["metadatas"][0][i] if results["metadatas"] else {}
 
-                search_results.append(
-                    DenseSearchResult(
-                        chunk_id=chunk_id,
-                        score=similarity,
-                        metadata=metadata,  # type: ignore
+                # Filter by similarity threshold if provided
+                if similarity_threshold is None or similarity >= similarity_threshold:
+                    search_results.append(
+                        DenseSearchResult(
+                            chunk_id=chunk_id,
+                            score=similarity,
+                            metadata=metadata,  # type: ignore
+                        )
                     )
-                )
 
         return search_results
 
