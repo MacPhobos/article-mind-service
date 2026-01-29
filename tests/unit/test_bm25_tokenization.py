@@ -172,6 +172,57 @@ class TestBM25EnhancedTokenization:
         assert all(isinstance(t, str) for t in tokens)
         assert all(t.islower() for t in tokens)
 
+    @pytest.mark.skipif(not NLTK_AVAILABLE, reason="NLTK not installed")
+    def test_question_words_preserved(self) -> None:
+        """Test that question words are preserved and not removed as stopwords."""
+        index = BM25Index(session_id=1)
+
+        # Question words that should be preserved
+        question_text = "how what where when why which who"
+        tokens = index._tokenize(question_text)
+
+        # All question words should be present (may be stemmed)
+        # Note: These are exact matches after stemming
+        assert len(tokens) >= 5, f"Expected at least 5 question words, got {tokens}"
+
+        # Test in context
+        query = "how to use JWT authentication"
+        tokens = index._tokenize(query)
+
+        # "how" should be preserved (not removed as stopword)
+        assert "how" in tokens, f"'how' should be preserved, got {tokens}"
+
+    @pytest.mark.skipif(not NLTK_AVAILABLE, reason="NLTK not installed")
+    def test_question_word_search_quality(self) -> None:
+        """Test that preserving question words improves search for question queries."""
+        index = BM25Index(session_id=1)
+
+        # Add documents
+        index.add_document("chunk_1", "Tutorial on how to implement JWT authentication in Python")
+        index.add_document("chunk_2", "What is JWT and why use it for authentication")
+        index.add_document("chunk_3", "Database schema design patterns")
+        index.build()
+
+        # Query with question words
+        results = index.search("how to use JWT", top_k=3)
+
+        # Should find chunk_1 (has "how to" and "JWT")
+        assert len(results) > 0
+        chunk_ids = [r[0] for r in results]
+        assert "chunk_1" in chunk_ids, "Should find 'how to' tutorial"
+
+    @pytest.mark.skipif(not NLTK_AVAILABLE, reason="NLTK not installed")
+    def test_negation_words_preserved(self) -> None:
+        """Test that negation words (not, no) are preserved."""
+        index = BM25Index(session_id=1)
+
+        # Negation words should be preserved
+        tokens = index._tokenize("do not use this pattern")
+        assert "not" in tokens, "'not' should be preserved for negation"
+
+        tokens = index._tokenize("there is no authentication")
+        assert "no" in tokens, "'no' should be preserved for negation"
+
 
 class TestBM25SearchWithEnhancedTokenization:
     """Integration tests for BM25 search with enhanced tokenization."""

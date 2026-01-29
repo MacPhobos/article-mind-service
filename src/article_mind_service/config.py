@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     chroma_persist_directory: str = "./data/chromadb"
     chroma_collection_name: str = "article_chunks"
 
+    # BM25 Configuration
+    bm25_k1: float = 1.5  # Term frequency saturation parameter (higher = more weight to term frequency)
+    bm25_b: float = 0.75  # Document length normalization (0 = no normalization, 1 = full normalization)
+    bm25_persist_dir: str = "./data/bm25"  # Directory for persisting BM25 indexes
+
     @property
     def embedding_dimensions(self) -> int:
         """Get dimensions based on configured provider.
