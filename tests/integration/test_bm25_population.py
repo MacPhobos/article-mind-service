@@ -9,7 +9,7 @@ This test verifies the bugfix for BM25 index population:
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from article_mind_service.embeddings.pipeline import EmbeddingPipeline
+from article_mind_service.embeddings.pipeline import EmbeddingPipeline, generate_chunk_id
 from article_mind_service.embeddings.chunker import TextChunker
 from article_mind_service.embeddings.chromadb_store import ChromaDBStore
 from article_mind_service.search.sparse_search import BM25IndexCache
@@ -74,7 +74,10 @@ async def test_bm25_index_populated_during_embedding() -> None:
     assert len(bm25_index) > 0, "BM25 index should contain chunks"
 
     # Verify chunk content is retrievable
-    chunk_id = f"article_{article_id}_chunk_0"
+    # Generate chunk ID using same function as pipeline
+    chunks = pipeline.chunker.chunk(test_text)
+    chunk_id = generate_chunk_id(article_id, chunks[0], 0)
+
     content = bm25_index.get_content(chunk_id)
     assert content is not None, "BM25 index should return chunk content"
     assert "JWT" in content or "authentication" in content, "Content should match source text"
@@ -137,8 +140,9 @@ async def test_bm25_index_contains_all_chunks() -> None:
     assert len(bm25_index) == chunk_count, "BM25 index should contain all chunks"
 
     # Verify each chunk is retrievable
-    for i in range(chunk_count):
-        chunk_id = f"article_2_chunk_{i}"
+    chunks = chunker.chunk(long_text)
+    for i in range(min(chunk_count, len(chunks))):
+        chunk_id = generate_chunk_id(2, chunks[i], i)
         content = bm25_index.get_content(chunk_id)
         assert content is not None, f"Chunk {i} should be retrievable"
         assert len(content) > 0, f"Chunk {i} should have content"
@@ -203,8 +207,14 @@ async def test_multiple_articles_accumulate_in_bm25_index() -> None:
 
     # Verify both articles' content is retrievable
     # (BM25 search with small corpus may have scoring issues, but content retrieval is the goal)
-    article1_chunk_id = "article_1_chunk_0"
-    article2_chunk_id = "article_2_chunk_0"
+    # Generate chunk IDs using same function as pipeline
+    text1 = "First article about authentication"
+    text2 = "Second article about authorization"
+    chunks1 = chunker.chunk(text1)
+    chunks2 = chunker.chunk(text2)
+
+    article1_chunk_id = generate_chunk_id(1, chunks1[0], 0)
+    article2_chunk_id = generate_chunk_id(2, chunks2[0], 0)
 
     content1 = bm25_index.get_content(article1_chunk_id)
     content2 = bm25_index.get_content(article2_chunk_id)

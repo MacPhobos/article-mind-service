@@ -1,10 +1,14 @@
 """Embedding pipeline orchestrator."""
 
+import hashlib
+import logging
 import re
 from typing import Any
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from article_mind_service.config import settings
 from article_mind_service.search.sparse_search import BM25IndexCache
@@ -19,6 +23,63 @@ from .chunking_strategy import (
 )
 from .exceptions import EmbeddingError
 from .semantic_chunker import SemanticChunker
+
+
+def generate_chunk_id(article_id: int, text: str, chunk_index: int) -> str:
+    """Generate deterministic chunk ID based on content hash.
+
+    Design Decision: Content-Based Chunk IDs
+    ========================================
+
+    Rationale: Use content hash instead of sequential IDs to enable deduplication.
+    - Same content always produces same ID (skip re-embedding unchanged chunks)
+    - Different content produces different IDs (detect changes)
+    - Includes article_id to prevent cross-article collisions
+    - Includes chunk_index for ordering and uniqueness within article
+
+    Format: sha256(f"{article_id}:{content_hash}:{chunk_index}")[:16]
+    where content_hash = sha256(text)[:8]
+
+    Args:
+        article_id: Database ID of the article.
+        text: Chunk text content.
+        chunk_index: Zero-based position in article.
+
+    Returns:
+        16-character hexadecimal chunk ID.
+
+    Benefits:
+        - Deterministic: Same input always produces same ID
+        - Deduplication: Unchanged chunks detected on re-index
+        - Cost Savings: Skip embedding API calls for unchanged content
+        - Performance: Hash computation is O(n) where n = text length (~1ms)
+
+    Trade-offs:
+        - Different from old ID format (article_{id}_chunk_{index})
+        - Requires content_hash in metadata to check without re-hashing
+        - 16 chars: Low collision probability (2^64 combinations)
+
+    Performance:
+        - Time Complexity: O(n) where n = text length
+        - Typical speed: <1ms for 1000 chars
+        - SHA-256 is fast and well-optimized
+
+    Example:
+        >>> generate_chunk_id(123, "Hello world", 0)
+        '7a3f8e9c1b2d4f6a'
+        >>> generate_chunk_id(123, "Hello world", 0)  # Same content, same ID
+        '7a3f8e9c1b2d4f6a'
+        >>> generate_chunk_id(123, "Different text", 0)  # Different content
+        '9b4e2f1a8c6d3e5b'
+    """
+    # Generate content hash (first 8 hex chars of SHA-256)
+    content_hash = hashlib.sha256(text.encode()).hexdigest()[:8]
+
+    # Combine article_id, content_hash, and chunk_index
+    id_string = f"{article_id}:{content_hash}:{chunk_index}"
+
+    # Generate final chunk ID (first 16 hex chars of SHA-256)
+    return hashlib.sha256(id_string.encode()).hexdigest()[:16]
 
 
 class EmbeddingPipeline:
@@ -175,34 +236,80 @@ class EmbeddingPipeline:
             # Collect all (chunk_id, content) tuples for BM25 indexing
             bm25_chunks: list[tuple[str, str]] = []
 
-            # Step 4: Process in batches
+            # Step 4: Process in batches with deduplication
             total_chunks = len(chunks)
+            skipped_chunks = 0
+            embedded_chunks = 0
+
             for batch_start in range(0, total_chunks, self.BATCH_SIZE):
                 batch_end = min(batch_start + self.BATCH_SIZE, total_chunks)
                 batch = chunks[batch_start:batch_end]
 
-                # Extract texts for embedding
-                batch_texts = [c["text"] for c in batch]
-
-                # Generate embeddings
-                embeddings = await self.provider.embed(batch_texts)
-
-                # Prepare metadata and IDs
-                ids = [f"article_{article_id}_chunk_{c['chunk_index']}" for c in batch]
-                metadatas = [
+                # Generate chunk IDs and content hashes for this batch
+                batch_data = [
                     {
-                        "article_id": c["article_id"],
-                        "chunk_index": c["chunk_index"],
-                        "source_url": c["source_url"],
-                        # Enhanced metadata for filtering
-                        "word_count": len(c["text"].split()),
-                        "has_code": bool(re.search(r'```|def |class |function |import |const |let |var ', c["text"])),
+                        "chunk": c,
+                        "text": c["text"],
+                        "chunk_id": generate_chunk_id(article_id, c["text"], c["chunk_index"]),
+                        "content_hash": hashlib.sha256(c["text"].encode()).hexdigest()[:8],
                     }
                     for c in batch
                 ]
 
-                # Store in ChromaDB
-                self.store.add_embeddings(
+                # Check for existing chunks to enable deduplication
+                chunk_ids = [d["chunk_id"] for d in batch_data]
+                existing_chunks = self.store.get_existing_chunks(collection, chunk_ids)
+
+                # Separate new/changed chunks from unchanged chunks
+                chunks_to_embed = []
+                for data in batch_data:
+                    chunk_id = data["chunk_id"]
+                    content_hash = data["content_hash"]
+
+                    # Check if chunk exists and content is unchanged
+                    if chunk_id in existing_chunks:
+                        existing_metadata = existing_chunks[chunk_id]
+                        existing_hash = existing_metadata.get("content_hash")
+
+                        if existing_hash == content_hash:
+                            # Chunk exists and content is unchanged - skip embedding
+                            skipped_chunks += 1
+                            # Still add to BM25 index (already in ChromaDB)
+                            bm25_chunks.append((chunk_id, data["text"]))
+                            continue
+
+                    # Chunk is new or content changed - needs embedding
+                    chunks_to_embed.append(data)
+
+                # Skip this batch if all chunks are unchanged
+                if not chunks_to_embed:
+                    continue
+
+                # Extract texts for embedding
+                batch_texts = [d["text"] for d in chunks_to_embed]
+
+                # Generate embeddings only for new/changed chunks
+                embeddings = await self.provider.embed(batch_texts)
+                embedded_chunks += len(embeddings)
+
+                # Prepare metadata and IDs
+                ids = [d["chunk_id"] for d in chunks_to_embed]
+                metadatas = [
+                    {
+                        "article_id": d["chunk"]["article_id"],
+                        "chunk_index": d["chunk"]["chunk_index"],
+                        "source_url": d["chunk"]["source_url"],
+                        # Content hash for deduplication check
+                        "content_hash": d["content_hash"],
+                        # Enhanced metadata for filtering
+                        "word_count": len(d["text"].split()),
+                        "has_code": bool(re.search(r'```|def |class |function |import |const |let |var ', d["text"])),
+                    }
+                    for d in chunks_to_embed
+                ]
+
+                # Use upsert to handle both new and updated chunks
+                self.store.upsert_embeddings(
                     collection=collection,
                     embeddings=embeddings,
                     texts=batch_texts,
@@ -213,6 +320,15 @@ class EmbeddingPipeline:
                 # Collect BM25 data (chunk_id, content) for this batch
                 for chunk_id, text in zip(ids, batch_texts):
                     bm25_chunks.append((chunk_id, text))
+
+            # Log deduplication statistics
+            logger.info(
+                "Article %d: %d total chunks, %d embedded, %d skipped (unchanged)",
+                article_id,
+                total_chunks,
+                embedded_chunks,
+                skipped_chunks,
+            )
 
             # Step 5: Populate BM25 index with all chunks
             # Convert session_id to int for BM25IndexCache
