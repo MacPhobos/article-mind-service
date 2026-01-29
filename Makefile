@@ -1,7 +1,8 @@
-.PHONY: help install dev test test-cov test-watch lint lint-fix format format-check migrate migrate-down migrate-create test-db-create test-db-drop test-db-reset clean shell check
+.PHONY: help install dev test test-cov test-watch lint lint-fix format format-check migrate migrate-down migrate-create test-db-create test-db-drop test-db-reset clean shell check eval-search eval-all
 
 PYTHON := python
 UV := uv
+TEST_SESSION ?= 1
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -76,3 +77,9 @@ clean: ## Remove build artifacts and cache
 
 shell: ## Start Python shell with app context
 	$(UV) run python -i -c "from article_mind_service.main import app; from article_mind_service.config import settings; print('App loaded. Available: app, settings')"
+
+eval-search: ## Run search quality evaluation tests
+	$(UV) run pytest tests/eval/search_quality_test.py -v --tb=short
+
+eval-all: ## Run all evaluation tests
+	$(MAKE) eval-search
