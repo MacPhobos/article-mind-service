@@ -14,6 +14,7 @@ from article_mind_service.config import settings
 from article_mind_service.search.sparse_search import BM25IndexCache
 
 from .base import EmbeddingProvider
+from .cache import EmbeddingCache
 from .chromadb_store import ChromaDBStore
 from .chunker import TextChunker
 from .chunking_strategy import (
@@ -137,6 +138,7 @@ class EmbeddingPipeline:
         store: ChromaDBStore,
         chunker: TextChunker,
         chunking_strategy: ChunkingStrategy | None = None,
+        cache: EmbeddingCache | None = None,
     ):
         """Initialize pipeline.
 
@@ -146,6 +148,8 @@ class EmbeddingPipeline:
             chunker: Text chunking instance (used for fixed-size strategy).
             chunking_strategy: Optional chunking strategy. If None, creates
                 strategy based on settings.chunking_strategy.
+            cache: Optional embedding cache. If None, creates default cache
+                from settings.
 
         Design Decision: Dependency Injection for Chunking Strategy
         ============================================================
@@ -167,6 +171,15 @@ class EmbeddingPipeline:
                 embedding_provider=provider, text_chunker=chunker
             )
         self.chunking_strategy = chunking_strategy
+
+        # Create embedding cache from settings if not provided
+        if cache is None:
+            cache = EmbeddingCache(
+                cache_dir=settings.embedding_cache_dir,
+                max_memory_entries=settings.embedding_cache_max_memory,
+                max_disk_size_mb=settings.embedding_cache_max_disk_mb,
+            )
+        self.cache = cache
 
     async def process_article(
         self,
@@ -288,9 +301,42 @@ class EmbeddingPipeline:
                 # Extract texts for embedding
                 batch_texts = [d["text"] for d in chunks_to_embed]
 
-                # Generate embeddings only for new/changed chunks
-                embeddings = await self.provider.embed(batch_texts)
-                embedded_chunks += len(embeddings)
+                # Check cache before calling embedding provider
+                embeddings: list[list[float]] = []
+                uncached_indices: list[int] = []
+                uncached_texts: list[str] = []
+                cache_hits = 0
+
+                for i, text in enumerate(batch_texts):
+                    cached_embedding = self.cache.get(text)
+                    if cached_embedding is not None:
+                        # Cache hit - use cached embedding
+                        embeddings.append(cached_embedding)
+                        cache_hits += 1
+                    else:
+                        # Cache miss - need to generate embedding
+                        embeddings.append([])  # Placeholder
+                        uncached_indices.append(i)
+                        uncached_texts.append(text)
+
+                # Generate embeddings only for cache misses
+                if uncached_texts:
+                    new_embeddings = await self.provider.embed(uncached_texts)
+                    embedded_chunks += len(new_embeddings)
+
+                    # Fill in embeddings and store in cache
+                    for idx, new_embedding in zip(uncached_indices, new_embeddings):
+                        embeddings[idx] = new_embedding
+                        # Store in cache for future use
+                        self.cache.put(batch_texts[idx], new_embedding)
+
+                # Log cache statistics for this batch
+                logger.info(
+                    "Batch embeddings: %d total, %d cached, %d computed",
+                    len(batch_texts),
+                    cache_hits,
+                    len(uncached_texts),
+                )
 
                 # Prepare metadata and IDs
                 ids = [d["chunk_id"] for d in chunks_to_embed]
@@ -321,13 +367,18 @@ class EmbeddingPipeline:
                 for chunk_id, text in zip(ids, batch_texts):
                     bm25_chunks.append((chunk_id, text))
 
-            # Log deduplication statistics
+            # Log deduplication and cache statistics
+            cache_stats = self.cache.stats
             logger.info(
-                "Article %d: %d total chunks, %d embedded, %d skipped (unchanged)",
+                "Article %d: %d total chunks, %d embedded, %d skipped (unchanged). "
+                "Cache: %.1f%% hit rate (%d hits, %d misses)",
                 article_id,
                 total_chunks,
                 embedded_chunks,
                 skipped_chunks,
+                cache_stats["hit_rate"] * 100,
+                cache_stats["hits"],
+                cache_stats["misses"],
             )
 
             # Step 5: Populate BM25 index with all chunks

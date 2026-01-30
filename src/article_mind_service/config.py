@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     bm25_b: float = 0.75  # Document length normalization (0 = no normalization, 1 = full normalization)
     bm25_persist_dir: str = "./data/bm25"  # Directory for persisting BM25 indexes
 
+    # Embedding Cache Configuration
+    embedding_cache_dir: str = "./data/embedding_cache"  # Directory for disk cache
+    embedding_cache_max_memory: int = 2000  # Max entries in memory LRU cache
+    embedding_cache_max_disk_mb: int = 500  # Max disk cache size (reserved for future use)
+
     @property
     def embedding_dimensions(self) -> int:
         """Get dimensions based on configured provider.

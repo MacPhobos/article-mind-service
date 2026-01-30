@@ -57,12 +57,22 @@ def pipeline(
     mock_provider: EmbeddingProvider,
     mock_store: ChromaDBStore,
     chunker: TextChunker,
+    tmp_path,
 ) -> EmbeddingPipeline:
-    """Create embedding pipeline with mocks."""
+    """Create embedding pipeline with mocks and isolated cache."""
+    from article_mind_service.embeddings.cache import EmbeddingCache
+
+    # Create isolated cache for this test (prevents interference between tests)
+    cache = EmbeddingCache(
+        cache_dir=str(tmp_path / "cache"),
+        max_memory_entries=2000,
+    )
+
     return EmbeddingPipeline(
         provider=mock_provider,
         store=mock_store,
         chunker=chunker,
+        cache=cache,
     )
 
 
