@@ -34,6 +34,7 @@ from article_mind_service.schemas.search import (
 
 from .dense_search import DenseSearch
 from .heuristic_reranker import heuristic_rerank
+from .query_expander import expand_query
 from .reranker import Reranker
 from .sparse_search import SparseSearch
 
@@ -359,9 +360,20 @@ class HybridSearch:
             ]
 
         if request.search_mode in (SearchMode.SPARSE, SearchMode.HYBRID):
+            # Expand query for BM25 sparse search (abbreviations -> full terms)
+            # Only expand for sparse path, NOT for dense (embedding) path
+            sparse_query = expand_query(request.query)
+
+            logger.info(
+                "search.hybrid.query_expansion",
+                session_id=session_id,
+                original_query=request.query,
+                expanded_query=sparse_query,
+            )
+
             sparse_results = self.sparse.search(
                 session_id=session_id,
-                query=request.query,
+                query=sparse_query,  # Use expanded query for BM25
                 top_k=retrieve_k,
             )
 

@@ -2,6 +2,7 @@
 
 from .dense_search import DenseSearch, DenseSearchResult
 from .hybrid_search import HybridSearch, reciprocal_rank_fusion
+from .query_expander import expand_query
 from .reranker import Reranker
 from .sparse_search import BM25Index, BM25IndexCache, SparseSearch
 
@@ -13,5 +14,6 @@ __all__ = [
     "HybridSearch",
     "Reranker",
     "SparseSearch",
+    "expand_query",
     "reciprocal_rank_fusion",
 ]
