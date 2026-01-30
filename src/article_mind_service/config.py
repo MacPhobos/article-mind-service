@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     embedding_cache_max_memory: int = 2000  # Max entries in memory LRU cache
     embedding_cache_max_disk_mb: int = 500  # Max disk cache size (reserved for future use)
 
+    # Embedding Retry Configuration
+    embedding_max_retries: int = 3  # Maximum retry attempts for embedding API calls
+    embedding_retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
+
     @property
     def embedding_dimensions(self) -> int:
         """Get dimensions based on configured provider.

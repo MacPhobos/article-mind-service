@@ -149,6 +149,11 @@ class Article(Base):
         nullable=True,
         comment="Number of chunks created during embedding",
     )
+    last_successful_chunk_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Index of last successfully embedded chunk (for resume on failure)",
+    )
 
     # Extraction metadata
     extraction_method: Mapped[str | None] = mapped_column(

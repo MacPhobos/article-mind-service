@@ -1,7 +1,9 @@
 """Embedding pipeline orchestrator."""
 
+import asyncio
 import hashlib
 import logging
+import random
 import re
 from typing import Any
 
@@ -24,6 +26,231 @@ from .chunking_strategy import (
 )
 from .exceptions import EmbeddingError
 from .semantic_chunker import SemanticChunker
+
+
+async def embed_with_retry(
+    provider: EmbeddingProvider,
+    texts: list[str],
+    max_retries: int | None = None,
+    base_delay: float | None = None,
+) -> list[list[float]]:
+    """Call embedding provider with exponential backoff and jitter.
+
+    Design Decision: Retry with Exponential Backoff
+    ================================================
+
+    Rationale: Transient errors (network, rate limits) should be retried,
+    but permanent errors (auth, invalid input) should fail immediately.
+
+    Retry Schedule:
+        - Attempt 1: immediate
+        - Attempt 2: ~1s delay (1.0 ± 0.5s jitter)
+        - Attempt 3: ~2s delay (2.0 ± 0.5s jitter)
+        - Attempt 4: ~4s delay (4.0 ± 0.5s jitter)
+
+    Error Classification:
+        - Permanent: auth errors, invalid input, 400/401/403
+        - Transient: network errors, rate limits, 429/500/502/503
+
+    Args:
+        provider: Embedding provider to call.
+        texts: List of texts to embed.
+        max_retries: Maximum retry attempts (defaults to settings.embedding_max_retries).
+        base_delay: Base delay in seconds (defaults to settings.embedding_retry_base_delay).
+
+    Returns:
+        List of embedding vectors.
+
+    Raises:
+        EmbeddingError: If all retries exhausted or permanent error.
+
+    Performance:
+        - Best case (success): Same as provider.embed()
+        - Worst case (3 retries): ~7s overhead (1s + 2s + 4s)
+        - Jitter prevents thundering herd on rate limits
+
+    Trade-offs:
+        - Latency: Adds retry delay on transient failures
+        - Reliability: Recovers from temporary network issues
+        - Complexity: Requires error classification logic
+    """
+    if max_retries is None:
+        max_retries = settings.embedding_max_retries
+    if base_delay is None:
+        base_delay = settings.embedding_retry_base_delay
+
+    for attempt in range(max_retries):
+        try:
+            return await provider.embed(texts)
+        except Exception as e:
+            # Classify error: permanent vs transient
+            if _is_permanent_error(e):
+                logger.error(f"Permanent embedding error (no retry): {e}")
+                raise
+
+            # If this was the last attempt, raise
+            if attempt == max_retries - 1:
+                logger.error(f"Embedding failed after {max_retries} attempts: {e}")
+                raise
+
+            # Calculate exponential backoff with jitter
+            delay = (2**attempt) * base_delay + random.uniform(-0.5, 0.5)
+            delay = max(0.1, delay)  # Never negative
+
+            logger.warning(
+                f"Embedding attempt {attempt + 1}/{max_retries} failed: {e}. "
+                f"Retrying in {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+
+    # Should never reach here, but for type safety
+    raise EmbeddingError("Retry logic error: reached unreachable code")
+
+
+def _is_permanent_error(error: Exception) -> bool:
+    """Classify errors as permanent (no retry) vs transient (retry).
+
+    Permanent errors indicate issues that won't be resolved by retrying:
+    - Authentication failures (invalid API key, unauthorized)
+    - Invalid input (bad request, model not found)
+    - Client errors (400, 401, 403)
+
+    Transient errors may succeed on retry:
+    - Network errors (connection timeout, DNS failure)
+    - Rate limiting (429 Too Many Requests)
+    - Server errors (500, 502, 503)
+
+    Args:
+        error: Exception to classify.
+
+    Returns:
+        True if error is permanent (should not retry), False if transient.
+
+    Performance:
+        - Time Complexity: O(n) where n = number of error indicators
+        - Typical speed: <1ms (string comparison)
+    """
+    error_str = str(error).lower()
+    permanent_indicators = [
+        "invalid api key",
+        "authentication",
+        "unauthorized",
+        "forbidden",
+        "invalid input",
+        "bad request",
+        "model not found",
+        "invalid_api_key",
+        "400",  # Bad Request
+        "401",  # Unauthorized
+        "403",  # Forbidden
+    ]
+    return any(indicator in error_str for indicator in permanent_indicators)
+
+
+class EmbeddingProgress:
+    """Track embedding progress for an article to enable resume on failure.
+
+    Design Decision: Batch-Level Progress Tracking
+    ===============================================
+
+    Rationale: Track progress at batch granularity (100 chunks) instead of
+    individual chunks to minimize overhead while enabling resume.
+
+    Benefits:
+        - Resume from last successful batch on failure
+        - Partial progress visible in logs
+        - No wasted API calls on retry
+        - Minimal memory overhead
+
+    Trade-offs:
+        - Batch granularity: May re-embed up to 100 chunks on retry
+        - Memory: Stores batch indices (small overhead)
+        - Complexity: Requires batch tracking logic
+
+    Attributes:
+        article_id: Database ID of the article.
+        total_chunks: Total number of chunks in article.
+        last_successful_batch: Index of last successfully embedded batch (-1 = not started).
+        failed_batches: List of batch indices that failed after retries.
+
+    Example:
+        >>> progress = EmbeddingProgress(article_id=123, total_chunks=500)
+        >>> progress.mark_batch_complete(0)  # Batch 0 (chunks 0-99) complete
+        >>> progress.mark_batch_complete(1)  # Batch 1 (chunks 100-199) complete
+        >>> progress.mark_batch_failed(2)    # Batch 2 (chunks 200-299) failed
+        >>> progress.resumable_from
+        2  # Resume from batch 2 (after retrying failed batches)
+        >>> progress.is_complete
+        False  # Has failed batches
+    """
+
+    def __init__(self, article_id: int, total_chunks: int):
+        """Initialize progress tracker.
+
+        Args:
+            article_id: Database ID of the article.
+            total_chunks: Total number of chunks in article.
+        """
+        self.article_id = article_id
+        self.total_chunks = total_chunks
+        self.last_successful_batch: int = -1  # -1 means not started
+        self.failed_batches: list[int] = []
+
+    def mark_batch_complete(self, batch_index: int) -> None:
+        """Mark a batch as successfully embedded.
+
+        Args:
+            batch_index: Index of batch that completed (0-based).
+        """
+        self.last_successful_batch = batch_index
+
+    def mark_batch_failed(self, batch_index: int) -> None:
+        """Mark a batch as failed after all retries exhausted.
+
+        Args:
+            batch_index: Index of batch that failed (0-based).
+        """
+        if batch_index not in self.failed_batches:
+            self.failed_batches.append(batch_index)
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if all batches completed successfully.
+
+        Returns:
+            True if all batches processed with no failures.
+        """
+        return self.last_successful_batch >= 0 and len(self.failed_batches) == 0
+
+    @property
+    def resumable_from(self) -> int:
+        """Get the batch index to resume from.
+
+        Returns:
+            Batch index to start processing from (0-based).
+        """
+        return self.last_successful_batch + 1
+
+    def summary(self) -> str:
+        """Get human-readable progress summary.
+
+        Returns:
+            Progress string for logging.
+
+        Example:
+            "Article 123: batch 3/10 complete, 1 failed"
+        """
+        total_batches = (self.total_chunks + 99) // 100  # Round up
+        completed = self.last_successful_batch + 1
+        failed_count = len(self.failed_batches)
+
+        if failed_count > 0:
+            return (
+                f"Article {self.article_id}: batch {completed}/{total_batches} complete, "
+                f"{failed_count} failed"
+            )
+        else:
+            return f"Article {self.article_id}: batch {completed}/{total_batches} complete"
 
 
 def generate_chunk_id(article_id: int, text: str, chunk_index: int) -> str:
@@ -249,12 +476,14 @@ class EmbeddingPipeline:
             # Collect all (chunk_id, content) tuples for BM25 indexing
             bm25_chunks: list[tuple[str, str]] = []
 
-            # Step 4: Process in batches with deduplication
+            # Step 4: Initialize progress tracking
             total_chunks = len(chunks)
+            progress = EmbeddingProgress(article_id=article_id, total_chunks=total_chunks)
             skipped_chunks = 0
             embedded_chunks = 0
 
-            for batch_start in range(0, total_chunks, self.BATCH_SIZE):
+            # Step 5: Process in batches with deduplication and retry
+            for batch_index, batch_start in enumerate(range(0, total_chunks, self.BATCH_SIZE)):
                 batch_end = min(batch_start + self.BATCH_SIZE, total_chunks)
                 batch = chunks[batch_start:batch_end]
 
@@ -319,16 +548,26 @@ class EmbeddingPipeline:
                         uncached_indices.append(i)
                         uncached_texts.append(text)
 
-                # Generate embeddings only for cache misses
+                # Generate embeddings only for cache misses with retry logic
                 if uncached_texts:
-                    new_embeddings = await self.provider.embed(uncached_texts)
-                    embedded_chunks += len(new_embeddings)
+                    try:
+                        new_embeddings = await embed_with_retry(self.provider, uncached_texts)
+                        embedded_chunks += len(new_embeddings)
 
-                    # Fill in embeddings and store in cache
-                    for idx, new_embedding in zip(uncached_indices, new_embeddings):
-                        embeddings[idx] = new_embedding
-                        # Store in cache for future use
-                        self.cache.put(batch_texts[idx], new_embedding)
+                        # Fill in embeddings and store in cache
+                        for idx, new_embedding in zip(uncached_indices, new_embeddings):
+                            embeddings[idx] = new_embedding
+                            # Store in cache for future use
+                            self.cache.put(batch_texts[idx], new_embedding)
+                    except Exception as e:
+                        # Mark batch as failed and continue processing remaining batches
+                        progress.mark_batch_failed(batch_index)
+                        logger.error(
+                            f"Batch {batch_index} failed after retries: {e}. "
+                            f"Progress: {progress.summary()}"
+                        )
+                        # Continue to next batch instead of failing entire article
+                        continue
 
                 # Log cache statistics for this batch
                 logger.info(
@@ -367,6 +606,10 @@ class EmbeddingPipeline:
                 for chunk_id, text in zip(ids, batch_texts):
                     bm25_chunks.append((chunk_id, text))
 
+                # Mark batch as complete
+                progress.mark_batch_complete(batch_index)
+                logger.debug(progress.summary())
+
             # Log deduplication and cache statistics
             cache_stats = self.cache.stats
             logger.info(
@@ -395,8 +638,19 @@ class EmbeddingPipeline:
             # Build the BM25 index (lazy build triggers on first search, but we can force it here)
             bm25_index.build()
 
-            # Update status to completed
-            await self._update_status(db, article_id, "completed", chunk_count=total_chunks)
+            # Update status based on progress
+            if len(progress.failed_batches) > 0:
+                # Partial failure: some batches succeeded, some failed
+                logger.warning(
+                    f"Article {article_id} partially completed: {progress.summary()}. "
+                    f"Failed batches: {progress.failed_batches}"
+                )
+                # Mark as failed since not all batches succeeded
+                await self._update_status(db, article_id, "failed", chunk_count=total_chunks)
+            else:
+                # All batches succeeded
+                logger.info(f"Article {article_id} completed: {progress.summary()}")
+                await self._update_status(db, article_id, "completed", chunk_count=total_chunks)
 
             return total_chunks
 
